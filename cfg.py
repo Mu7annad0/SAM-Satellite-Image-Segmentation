@@ -15,5 +15,5 @@ def parse_args():
     parser.add_argument('--run_name', type=str, default='sam-satellite', help="run model name")
     parser.add_argument('-lr', type=float, default=1e-4, help='initial learning rate')
 
-    args = parser.parse_args() 
+    args = parser.parse_args()
     return args 
