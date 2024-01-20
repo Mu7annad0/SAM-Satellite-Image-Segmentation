@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
@@ -6,7 +7,7 @@ import numpy as np
 from PIL import Image
 from glob import glob
 from utils import get_bounding_box, visualize_img_mask_box
-
+from cfg import parse_args
 
 train_transform = A.Compose([
     A.Resize(512, 512),
@@ -20,10 +21,11 @@ train_transform = A.Compose([
 
 class RoadDataset(Dataset):
 
-    def __init__(self, data_root, mode="train", transform=None):
+    def __init__(self, data_root, mode="train", box=True, transform=None):
         self.data_root = data_root
         self.mode = mode
         self.transform = transform
+        self.box = box
         self.initial_transform = A.Compose([
             A.Resize(512, 512),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
@@ -59,25 +61,18 @@ class RoadDataset(Dataset):
             # Append the transformed image to the list
             self.transformed_images += 1
 
-        boxes = get_bounding_box(mask)
+        if self.box is True:   
+            boxes = get_bounding_box(mask)
+            return image, mask, torch.tensor(boxes).float()
 
-        return image, mask, torch.tensor(boxes).float()
+        return image, mask
 
     def get_num_images(self):
         return self.transformed_images
 
-
 if __name__ == '__main__':
-    train_root = "../graduating_project/Dataset/DeepGlobeRoadExtraction/road/train/"
-
-    train_dataset = RoadDataset(train_root, mode="train", transform=train_transform)
-    train_dataLoader = DataLoader(train_dataset, batch_size=32, shuffle = True)
-
-    visualize_img_mask_box(train_dataset, 3)
-
-    for batch in train_dataLoader:
-        image, mask, box = batch
-        print("Image shape:", image.shape)
-        print("Mask shape:", mask.shape)
-        print("Box shape:", box.shape)
-        break
+      
+    args = parse_args()
+    train_root = args.train_root
+    dataset = RoadDataset(train_root, "train", box = True, transform=train_transform)
+    visualize_img_mask_box(dataset, 3)
