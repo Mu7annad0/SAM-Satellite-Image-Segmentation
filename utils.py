@@ -2,7 +2,9 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.transforms.functional import to_pil_image
-
+from albumentations.pytorch import ToTensorV2
+import cv2
+import albumentations as A
 
 def get_bounding_box(ground_truth_map):
     # The ground truth map is converted to a NumPy array, to perform array operations
@@ -63,3 +65,19 @@ def visualize_img_mask_box(dataset, num_samples_to_visualize):
             plt.gca().add_patch(rect)
             
         plt.show()
+
+
+def train_transform(img_size, orig_h, orig_w):
+
+    transforms = []
+    if orig_h < img_size and orig_w < img_size:
+        transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
+    else:
+        transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
+
+    # transforms.append(A.HorizontalFlip(p=0.5))
+    transforms.append(A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)))
+    transforms.append(ToTensorV2(p=1.0))
+
+    return A.Compose(transforms, p=1.)
+    
