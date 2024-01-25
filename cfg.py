@@ -11,7 +11,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--model_type', type=str, default='vit_b', help='sam model_type')
     parser.add_argument('--work_dir', type=str, default='../workdir/')
-    parser.add_argument('--checkpoint', type=str, default='../wordir/SAM/')
+    parser.add_argument('--checkpoint', type=str, default='../workdir/ck/SAM_checkpoint/sam_vit_b_01ec64.pth')
     parser.add_argument('--run_name', type=str, default='sam-satellite', help="run model name")
     parser.add_argument('-lr', type=float, default=1e-4, help='initial learning rate')
 
