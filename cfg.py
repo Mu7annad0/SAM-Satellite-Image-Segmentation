@@ -4,6 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--num_epochs", type=int, default=3)
+    parser.add_argument("--img_size", type=int, default=256)
     parser.add_argument("--train_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/train/")
     parser.add_argument("--valid_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/valid/")
     parser.add_argument("--test_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/test/")
