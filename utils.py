@@ -1,9 +1,11 @@
 import torch
+import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.transforms.functional import to_pil_image
 from albumentations.pytorch import ToTensorV2
 import cv2
+import torch.nn.functional as F
 import albumentations as A
 
 def get_bounding_box(ground_truth_map):
@@ -80,4 +82,73 @@ def train_transform(img_size, orig_h, orig_w):
     transforms.append(ToTensorV2(p=1.0))
 
     return A.Compose(transforms, p=1.)
+    
+
+# --------------------------loss functions--------------------------------------
+# Focal loss
+
+class Focal_loss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, num_classes=1, size_average=True):
+        """
+        Args:
+            alpha: Controls the weighting of hard vs. easy examples.
+            gamma: Controls the modulating factor that down-weights easy examples.
+            num_classes: Number of classes in the classification problem.
+            size_average: Whether to average the loss over the batch or sum it.
+        """
+        super(Focal_loss, self).__init__()
+        self.size_average = size_average
+        # Handling alpha values
+        if isinstance(alpha, list):
+            assert len(alpha) == num_classes
+            print(f'Focal loss alpha={alpha}, will assign alpha values for each class')
+            self.alpha = torch.Tensor(alpha)
+        else:
+            assert alpha < 1
+            print(f'Focal loss alpha={alpha}, will shrink the impact in background')
+            # Handling alpha value for background class
+            self.alpha = torch.zeros(num_classes)
+            self.alpha[0] = alpha
+            self.alpha[1:] = 1 - alpha
+        self.gamma = gamma
+        self.num_classes = num_classes
+
+    def forward(self, preds, labels):
+        """
+        Calc focal loss
+        :param preds: size: [B, C, H, W]:
+        :param labels: size:[B, H, W]: 
+        :return:
+        """
+        self.alpha = self.alpha.to(preds.device)
+
+        # Reshape predictions for calculations
+        preds = preds.permute(0, 2, 3, 1).contiguous()
+        preds = preds.view(-1, preds.size(-1))
+
+        B, H, W = labels.shape
+         # Assert shapes to ensure correctness
+        assert B * H * W == preds.shape[0]
+        assert preds.shape[-1] == self.num_classes
+        preds_logsoft = F.log_softmax(preds, dim=1)  # log softmax
+        preds_softmax = torch.exp(preds_logsoft)  # softmax
+
+        # Gather predicted probabilities based on ground truth labels
+        preds_softmax = preds_softmax.gather(1, labels.view(-1, 1).to(torch.int64))
+        preds_logsoft = preds_logsoft.gather(1, labels.view(-1, 1).to(torch.int64))
+        # Gather alpha values based on ground truth labels
+        alpha = self.alpha.gather(0, labels.view(-1).to(torch.int64))
+
+        # Compute focal loss
+        loss = -torch.mul(torch.pow((1 - preds_softmax), self.gamma),
+                          preds_logsoft)  # torch.low(1 - preds_softmax) == (1 - pt) ** r
+        loss = torch.mul(alpha, loss.t())
+
+        # Calculate mean or sum based on size_average parameter
+        if self.size_average:
+            loss = loss.mean()
+        else:
+            loss = loss.sum()
+        return loss
+    
     
