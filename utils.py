@@ -8,6 +8,7 @@ import cv2
 import torch.nn.functional as F
 import albumentations as A
 
+
 def get_bounding_box(ground_truth_map):
     # The ground truth map is converted to a NumPy array, to perform array operations
     ground_truth_array = np.array(ground_truth_map)
@@ -39,7 +40,9 @@ def visualize_img_mask_box(dataset, num_samples_to_visualize):
 
     for index in random_indices:
         if len(dataset[index]) == 3:
-            image, mask, boxes = dataset[index]
+            image = dataset[index]['image']
+            mask = dataset[index]['mask']
+            boxes = dataset[index]['box']
             box = boxes.numpy()
 
         elif len(dataset[index]) == 2:
@@ -85,114 +88,55 @@ def train_transform(img_size, orig_h, orig_w):
     return A.Compose(transforms, p=1.)
     
 
-# -----------------------------loss functions--------------------------------------
+
+# ------------------------------------------loss functions------------------------------------------------
 # Focal loss
 
-class Focal_loss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2, num_classes=1, size_average=True):
-        """
-        Args:
-            alpha: Controls the weighting of hard vs. easy examples.
-            gamma: Controls the modulating factor that down-weights easy examples.
-            num_classes: Number of classes in the classification problem.
-            size_average: Whether to average the loss over the batch or sum it.
-        """
-        super(Focal_loss, self).__init__()
-        self.size_average = size_average
-        # Handling alpha values
-        if isinstance(alpha, list):
-            assert len(alpha) == num_classes
-            print(f'Focal loss alpha={alpha}, will assign alpha values for each class')
-            self.alpha = torch.Tensor(alpha)
-        else:
-            assert alpha < 1
-            print(f'Focal loss alpha={alpha}, will shrink the impact in background')
-            # Handling alpha value for background class
-            self.alpha = torch.zeros(num_classes)
-            self.alpha[0] = alpha
-            self.alpha[1:] = 1 - alpha
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=2.0, alpha=0.25):
+        super(FocalLoss, self).__init__()
         self.gamma = gamma
-        self.num_classes = num_classes
+        self.alpha = alpha
 
-    def forward(self, preds, labels):
+    def forward(self, pred, mask):
         """
-        Calc focal loss
-        :param preds: size: [B, C, H, W]:
-        :param labels: size:[B, H, W]: 
-        :return:
+        pred: [B, 1, H, W]
+        mask: [B, 1, H, W]
         """
-        self.alpha = self.alpha.to(preds.device)
+        assert pred.shape == mask.shape, "pred and mask should have the same shape."
+        p = torch.sigmoid(pred)
+        num_pos = torch.sum(mask)
+        num_neg = mask.numel() - num_pos
+        w_pos = (1 - p) ** self.gamma
+        w_neg = p ** self.gamma
 
-        # Reshape predictions for calculations
-        preds = preds.permute(0, 2, 3, 1).contiguous()
-        preds = preds.view(-1, preds.size(-1))
+        loss_pos = -self.alpha * mask * w_pos * torch.log(p + 1e-12)
+        loss_neg = -(1 - self.alpha) * (1 - mask) * w_neg * torch.log(1 - p + 1e-12)
 
-        B, H, W = labels.shape
-         # Assert shapes to ensure correctness
-        assert B * H * W == preds.shape[0]
-        assert preds.shape[-1] == self.num_classes
-        preds_logsoft = F.log_softmax(preds, dim=1)  # log softmax
-        preds_softmax = torch.exp(preds_logsoft)  # softmax
+        loss = (torch.sum(loss_pos) + torch.sum(loss_neg)) / (num_pos + num_neg + 1e-12)
 
-        # Gather predicted probabilities based on ground truth labels
-        preds_softmax = preds_softmax.gather(1, labels.view(-1, 1).to(torch.int64))
-        preds_logsoft = preds_logsoft.gather(1, labels.view(-1, 1).to(torch.int64))
-        # Gather alpha values based on ground truth labels
-        alpha = self.alpha.gather(0, labels.view(-1).to(torch.int64))
-
-        # Compute focal loss
-        loss = -torch.mul(torch.pow((1 - preds_softmax), self.gamma),
-                          preds_logsoft)  # torch.low(1 - preds_softmax) == (1 - pt) ** r
-        loss = torch.mul(alpha, loss.t())
-
-        # Calculate mean or sum based on size_average parameter
-        if self.size_average:
-            loss = loss.mean()
-        else:
-            loss = loss.sum()
         return loss
     
 
 # Dice Loss
     
 class DiceLoss(nn.Module):
-    def __init__(self, n_classes=1):
+    def __init__(self, smooth=1.0):
         super(DiceLoss, self).__init__()
-        self.n_classes = n_classes
+        self.smooth = smooth
 
-    def _one_hot_encoder(self, input_tensor):
-        tensor_list = []
-        for i in range(self.n_classes):
-            temp_prob = input_tensor == i  # * torch.ones_like(input_tensor)
-            tensor_list.append(temp_prob.unsqueeze(1))
-        output_tensor = torch.cat(tensor_list, dim=1)
-        return output_tensor.float()
+    def forward(self, pred, mask):
+        """
+        pred: [B, 1, H, W]
+        mask: [B, 1, H, W]
+        """
+        assert pred.shape == mask.shape, "pred and mask should have the same shape."
+        p = torch.sigmoid(pred)
+        intersection = torch.sum(p * mask)
+        union = torch.sum(p) + torch.sum(mask)
+        dice_loss = (2.0 * intersection + self.smooth) / (union + self.smooth)
 
-    def _dice_loss(self, score, target):
-        target = target.float()
-        smooth = 1e-5
-        intersect = torch.sum(score * target)
-        y_sum = torch.sum(target * target)
-        z_sum = torch.sum(score * score)
-        loss = (2 * intersect + smooth) / (z_sum + y_sum + smooth)
-        loss = 1 - loss
-        return loss
-
-    def forward(self, inputs, target, weight=None, softmax=False):
-        if softmax:
-            inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
-        if weight is None:
-            weight = [1] * self.n_classes
-        assert inputs.size() == target.size(), 'predict {} & target {} shape do not match'.format(inputs.size(),
-                                                                                                  target.size())
-        class_wise_dice = []
-        loss = 0.0
-        for i in range(0, self.n_classes):
-            dice = self._dice_loss(inputs[:, i], target[:, i])
-            class_wise_dice.append(1.0 - dice.item())
-            loss += dice * weight[i]
-        return loss / self.n_classes
+        return 1 - dice_loss
 
 
 # Intersection over Union (IoU) Loss
@@ -219,3 +163,113 @@ class IoULoss(nn.Module):
         IoU = (intersection + smooth)/(union + smooth)
                 
         return 1 - IoU
+       
+
+class MaskIoULoss(nn.Module):
+
+    def __init__(self, ):
+        super(MaskIoULoss, self).__init__()
+
+    def forward(self, pred_mask, ground_truth_mask, pred_iou):
+        """
+        pred_mask: [B, 1, H, W]
+        ground_truth_mask: [B, 1, H, W]
+        pred_iou: [B, 1]
+        """
+        assert pred_mask.shape == ground_truth_mask.shape, "pred_mask and ground_truth_mask should have the same shape."
+
+        p = torch.sigmoid(pred_mask)
+        intersection = torch.sum(p * ground_truth_mask)
+        union = torch.sum(p) + torch.sum(ground_truth_mask) - intersection
+        iou = (intersection + 1e-7) / (union + 1e-7)
+        iou_loss = torch.mean((iou - pred_iou) ** 2)
+        return iou_loss
+    
+
+
+# FocalDiceloss_IoULoss
+class FocalDiceloss_IoULoss(nn.Module):
+    
+    def __init__(self, weight=20.0, iou_scale=1.0):
+        super(FocalDiceloss_IoULoss, self).__init__()
+        self.weight = weight
+        self.iou_scale = iou_scale
+        self.focal_loss = FocalLoss()
+        self.dice_loss = DiceLoss()
+        self.maskiou_loss = MaskIoULoss()
+
+    def forward(self, pred, mask, pred_iou):
+        """
+        pred: [B, 1, H, W]
+        mask: [B, 1, H, W]
+        """
+        assert pred.shape == mask.shape, "pred and mask should have the same shape."
+
+        focal_loss = self.focal_loss(pred, mask)
+        dice_loss =self.dice_loss(pred, mask)
+        loss1 = self.weight * focal_loss + dice_loss
+        loss2 = self.maskiou_loss(pred, mask, pred_iou)
+        loss = loss1 + loss2 * self.iou_scale
+        return loss
+
+
+
+# -------------------------------------------Metrics------------------------------------------------
+
+def _threshold(x, threshold=None):
+    if threshold is not None:
+        return (x > threshold).type(x.dtype)
+    else:
+        return x
+
+
+def _list_tensor(x, y):
+    m = torch.nn.Sigmoid()
+    if type(x) is list:
+        x = torch.tensor(np.array(x))
+        y = torch.tensor(np.array(y))
+        if x.min() < 0:
+            x = m(x)
+    else:
+        x, y = x, y
+        if x.min() < 0:
+            x = m(x)
+    return x, y
+
+
+def iou(pr, gt, eps=1e-7, threshold = 0.5):
+    pr_, gt_ = _list_tensor(pr, gt)
+    pr_ = _threshold(pr_, threshold=threshold)
+    gt_ = _threshold(gt_, threshold=threshold)
+    intersection = torch.sum(gt_ * pr_,dim=[1,2,3])
+    union = torch.sum(gt_,dim=[1,2,3]) + torch.sum(pr_,dim=[1,2,3]) - intersection
+    return ((intersection + eps) / (union + eps)).cpu().numpy()
+
+
+def dice(pr, gt, eps=1e-7, threshold = 0.5):
+    pr_, gt_ = _list_tensor(pr, gt)
+    pr_ = _threshold(pr_, threshold=threshold)
+    gt_ = _threshold(gt_, threshold=threshold)
+    intersection = torch.sum(gt_ * pr_,dim=[1,2,3])
+    union = torch.sum(gt_,dim=[1,2,3]) + torch.sum(pr_,dim=[1,2,3])
+    return ((2. * intersection +eps) / (union + eps)).cpu().numpy()
+
+
+def SegMetrics(pred, label, metrics):
+    metric_list = []  
+    if isinstance(metrics, str):
+        metrics = [metrics, ]
+    for i, metric in enumerate(metrics):
+        if not isinstance(metric, str):
+            continue
+        elif metric == 'iou':
+            metric_list.append(np.mean(iou(pred, label)))
+        elif metric == 'dice':
+            metric_list.append(np.mean(dice(pred, label)))
+        else:
+            raise ValueError('metric %s not recognized' % metric)
+    if pred is not None:
+        metric = np.array(metric_list)
+    else:
+        raise ValueError('metric mistakes in calculations')
+    return metric
