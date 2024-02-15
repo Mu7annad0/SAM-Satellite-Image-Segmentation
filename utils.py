@@ -34,60 +34,199 @@ def get_bounding_box(ground_truth_map):
     return bbox
 
 
-def visualize_img_mask_box(dataset, num_samples_to_visualize):
+def show_mask(mask, ax, random_color=False):
+    if random_color:
+        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    else:
+        color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
+    h, w = mask.shape[-2:]
+    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+    ax.imshow(mask_image)
+
+def show_points(coords, labels, ax, marker_size=150):
+    pos_points = coords[labels == 1]
+    neg_points = coords[labels == 0]
+    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white',
+               linewidth=0.75)
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white',
+               linewidth=0.75)
+
+
+"""Random Sample Point"""
+def get_random_point(mask):
+  indices = np.argwhere(mask==True)
+
+  random_point = indices[np.random.choice(list(range(len(indices))))]
+  random_point = [random_point[1], random_point[0]]
+  return random_point
+
+"""Max Entropy Point"""
+def image_entropy(image):
+    # Convert the image to grayscale
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Calculate the histogram
+    hist = cv2.calcHist([gray_image], [0], None, [256], [0, 256])
+    # Normalize the histogram
+    hist /= hist.sum()
+    # Calculate the entropy
+    entropy = -np.sum(hist * np.log2(hist + np.finfo(float).eps))
+
+    return entropy
+
+def calculate_image_entroph(img1, img2):
+    # Calculate the entropy for each image
+    entropy1 = image_entropy(img1)
+    # print(img2)
+    try:
+        entropy2 = image_entropy(img2)
+    except:
+        entropy2 = 0
+    # Compute the entropy between the two images
+    entropy_diff = abs(entropy1 - entropy2)
+    # print("Entropy Difference:", entropy_diff)
+    return entropy_diff
+
+def select_grid(image, center_point, grid_size):
+    (img_h, img_w, _) = image.shape
+
+    # Extract the coordinates of the center point
+    x, y = center_point
+    x = int(np.floor(x))
+    y = int(np.floor(y))
+    # Calculate the top-left corner coordinates of the grid
+    top_left_x = x - (grid_size // 2) if x - (grid_size // 2) > 0 else 0
+    top_left_y = y - (grid_size // 2) if y - (grid_size // 2) > 0 else 0
+    bottom_right_x = top_left_x + grid_size if top_left_x + grid_size < img_w else img_w
+    bottom_right_y = top_left_y + grid_size if top_left_y + grid_size < img_h else img_h
+
+    # Extract the grid from the image
+    grid = image[top_left_y: bottom_right_y, top_left_x: bottom_right_x]
+
+    return grid
+
+def get_entropy_points(input_point,mask,image):
+    max_entropy_point = [0,0]
+    max_entropy = 0
+    grid_size = 9
+    center_grid = select_grid(image, input_point, grid_size)
+
+    indices = np.argwhere(mask ==True)
+    for x,y in indices:
+        grid = select_grid(image, [x,y], grid_size)
+        entropy_diff = calculate_image_entroph(center_grid, grid)
+        if entropy_diff > max_entropy:
+            max_entropy_point = [x,y]
+            max_entropy = entropy_diff
+    return [max_entropy_point[1], max_entropy_point[0]]
+
+
+"""Max Distance Point"""
+def get_distance_points(input_point, mask):
+    max_distance_point = [0,0]
+    max_distance = 0
+    # grid_size = 9
+    # center_grid = select_grid(image,input_point, grid_size)
+
+    indices = np.argwhere(mask ==True)
+    for x,y in indices:
+        distance = np.sqrt((x- input_point[0])**2 + (y- input_point[1]) ** 2)
+        if max_distance < distance:
+            max_distance_point = [x,y]
+            max_distance = distance
+    return [max_distance_point[1],max_distance_point[0]]
+
+
+def visualize(dataset, num_samples_to_visualize, box=True, points=True):
 
     random_indices = torch.randperm(len(dataset))[:num_samples_to_visualize]
 
     for index in random_indices:
-        if len(dataset[index]) == 3:
-            image = dataset[index]['image']
-            mask = dataset[index]['mask']
+        image = dataset[index]['image']
+        mask = dataset[index]['mask']
+
+        if box:
             boxes = dataset[index]['box']
             box = boxes.numpy()
 
-        elif len(dataset[index]) == 2:
-            image, mask = dataset[index]
-        # Convert tensor to numpy array
-        # image = image.numpy().astype('uint8')
+        if points:
+            point_coords = dataset[index]['point_coords']
+            point_labels = dataset[index]['point_labels']
+
+        # Convert tensors to numpy arrays
+        image = image.numpy().squeeze().transpose(1, 2, 0)  # Handle batch dimension and reshape
         mask = mask.numpy().squeeze().astype('uint8')
-        
 
         plt.clf()
+
         # Plot the image
-        plt.imshow(image.permute(1, 2, 0).numpy())
-        plt.title("Image with Mask and Bounding Box")
+        plt.imshow(image)
+        plt.title("Image with Mask, Bounding Box, and Points")
 
         # Plot the mask
-        plt.imshow(mask, alpha=0.3, cmap='viridis')  # Adjust cmap based on your mask values
+        plt.imshow(mask, alpha=0.4, cmap='viridis')  # Adjust cmap based on your mask values
 
-        
-        if len(dataset[index]) == 3:
+        if box is not None:
             x_min, y_min, x_max, y_max = map(int, box)
             width = x_max - x_min
             height = y_max - y_min
-
             rect = plt.Rectangle((x_min, y_min), width, height, linewidth=2, edgecolor='r', facecolor='none')
             plt.gca().add_patch(rect)
-            
+
+        if point_coords is not None:
+            for i, (x, y) in enumerate(point_coords):
+                if point_labels is not None and point_labels[i] == 1:
+                    color = 'green'  # Foreground point
+                else:
+                    color = 'blue'  # Background point
+                plt.scatter(x, y, c=color, s=40, marker='x')
+
         plt.show()
-
-
-def train_transform(img_size, orig_h, orig_w):
-
-    transforms = []
-    if orig_h < img_size and orig_w < img_size:
-        transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, 
-                                        border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
-    else:
-        transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
-
-    # transforms.append(A.HorizontalFlip(p=0.5))
-    transforms.append(A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)))
-    transforms.append(ToTensorV2(p=1.0))
-
-    return A.Compose(transforms, p=1.)
     
 
+def init_point_sampling(mask, get_point=1):
+    """
+    Initialization samples points from the mask and assigns labels to them.
+    Args:
+        mask (torch.Tensor): Input mask tensor.
+        num_points (int): Number of points to sample. Default is 1.
+    Returns:
+        coords (torch.Tensor): Tensor containing the sampled points' coordinates (x, y).
+        labels (torch.Tensor): Tensor containing the corresponding labels (0 for background, 1 for foreground).
+    """
+    if isinstance(mask, torch.Tensor):
+        mask = mask.numpy()
+        
+     # Get coordinates of black/white pixels
+    fg_coords = np.argwhere(mask == 1)[:,::-1]
+    bg_coords = np.argwhere(mask == 0)[:,::-1]
+
+    fg_size = len(fg_coords)
+    bg_size = len(bg_coords)
+
+    if get_point == 1:
+        if fg_size > 0:
+            index = np.random.randint(fg_size)
+            fg_coord = fg_coords[index]
+            label = 1
+        else:
+            index = np.random.randint(bg_size)
+            fg_coord = bg_coords[index]
+            label = 0
+        return torch.as_tensor([fg_coord.tolist()], dtype=torch.float), torch.as_tensor([label], dtype=torch.int)
+    
+    else:
+        num_fg = get_point // 2
+        num_bg = get_point - num_fg
+        fg_indices = np.random.choice(fg_size, size=num_fg, replace=True)
+        bg_indices = np.random.choice(bg_size, size=num_bg, replace=True)
+        fg_coords = fg_coords[fg_indices]
+        bg_coords = bg_coords[bg_indices]
+        coords = np.concatenate([fg_coords, bg_coords], axis=0)
+        labels = np.concatenate([np.ones(num_fg), np.zeros(num_bg)]).astype(int)
+        indices = np.random.permutation(get_point)
+        coords, labels = torch.as_tensor(coords[indices], dtype=torch.float), torch.as_tensor(labels[indices], dtype=torch.int)
+        return coords, labels
+    
 
 # ------------------------------------------loss functions------------------------------------------------
 # Focal loss
