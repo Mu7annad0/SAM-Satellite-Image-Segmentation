@@ -4,7 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--num_epochs", type=int, default=3)
-    parser.add_argument("--img_size", type=int, default=256)
+    parser.add_argument("--img_size", type=int, default=512)
     parser.add_argument("--train_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/train/")
     parser.add_argument("--valid_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/valid/")
     parser.add_argument("--test_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/test/")
@@ -15,8 +15,12 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, default='../workdir/ck/SAM_checkpoint/sam_vit_b_01ec64.pth')
     parser.add_argument("--metrics", nargs='+', default=['iou', 'dice'], help="metrics")
     parser.add_argument('--run_name', type=str, default='sam-satellite', help="run model name")
-    parser.add_argument('-lr', type=float, default=1e-4, help='initial learning rate')
+    parser.add_argument("--encoder_adapter", type=bool, default=True, help="use adapter")
+    parser.add_argument('--lr', type=float, default=1e-4, help='initial learning rate')
     parser.add_argument('--propmt_grad', type=bool, default=False, help="propmt encoder grad")
+    parser.add_argument('--num_points', type=int, default=6)
+    parser.add_argument('--box', type=bool, default=True, help="using box as prompt")
+    parser.add_argument('--point', type=bool, default=True, help="using points as prompt")
 
     args = parser.parse_args()
     return args 
