@@ -34,108 +34,6 @@ def get_bounding_box(ground_truth_map):
     return bbox
 
 
-def show_mask(mask, ax, random_color=False):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
-    else:
-        color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
-
-def show_points(coords, labels, ax, marker_size=150):
-    pos_points = coords[labels == 1]
-    neg_points = coords[labels == 0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white',
-               linewidth=0.75)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white',
-               linewidth=0.75)
-
-
-"""Random Sample Point"""
-def get_random_point(mask):
-  indices = np.argwhere(mask==True)
-
-  random_point = indices[np.random.choice(list(range(len(indices))))]
-  random_point = [random_point[1], random_point[0]]
-  return random_point
-
-"""Max Entropy Point"""
-def image_entropy(image):
-    # Convert the image to grayscale
-    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # Calculate the histogram
-    hist = cv2.calcHist([gray_image], [0], None, [256], [0, 256])
-    # Normalize the histogram
-    hist /= hist.sum()
-    # Calculate the entropy
-    entropy = -np.sum(hist * np.log2(hist + np.finfo(float).eps))
-
-    return entropy
-
-def calculate_image_entroph(img1, img2):
-    # Calculate the entropy for each image
-    entropy1 = image_entropy(img1)
-    # print(img2)
-    try:
-        entropy2 = image_entropy(img2)
-    except:
-        entropy2 = 0
-    # Compute the entropy between the two images
-    entropy_diff = abs(entropy1 - entropy2)
-    # print("Entropy Difference:", entropy_diff)
-    return entropy_diff
-
-def select_grid(image, center_point, grid_size):
-    (img_h, img_w, _) = image.shape
-
-    # Extract the coordinates of the center point
-    x, y = center_point
-    x = int(np.floor(x))
-    y = int(np.floor(y))
-    # Calculate the top-left corner coordinates of the grid
-    top_left_x = x - (grid_size // 2) if x - (grid_size // 2) > 0 else 0
-    top_left_y = y - (grid_size // 2) if y - (grid_size // 2) > 0 else 0
-    bottom_right_x = top_left_x + grid_size if top_left_x + grid_size < img_w else img_w
-    bottom_right_y = top_left_y + grid_size if top_left_y + grid_size < img_h else img_h
-
-    # Extract the grid from the image
-    grid = image[top_left_y: bottom_right_y, top_left_x: bottom_right_x]
-
-    return grid
-
-def get_entropy_points(input_point,mask,image):
-    max_entropy_point = [0,0]
-    max_entropy = 0
-    grid_size = 9
-    center_grid = select_grid(image, input_point, grid_size)
-
-    indices = np.argwhere(mask ==True)
-    for x,y in indices:
-        grid = select_grid(image, [x,y], grid_size)
-        entropy_diff = calculate_image_entroph(center_grid, grid)
-        if entropy_diff > max_entropy:
-            max_entropy_point = [x,y]
-            max_entropy = entropy_diff
-    return [max_entropy_point[1], max_entropy_point[0]]
-
-
-"""Max Distance Point"""
-def get_distance_points(input_point, mask):
-    max_distance_point = [0,0]
-    max_distance = 0
-    # grid_size = 9
-    # center_grid = select_grid(image,input_point, grid_size)
-
-    indices = np.argwhere(mask ==True)
-    for x,y in indices:
-        distance = np.sqrt((x- input_point[0])**2 + (y- input_point[1]) ** 2)
-        if max_distance < distance:
-            max_distance_point = [x,y]
-            max_distance = distance
-    return [max_distance_point[1],max_distance_point[0]]
-
-
 def visualize(dataset, num_samples_to_visualize, box=True, points=True):
 
     random_indices = torch.randperm(len(dataset))[:num_samples_to_visualize]
@@ -164,6 +62,10 @@ def visualize(dataset, num_samples_to_visualize, box=True, points=True):
 
         # Plot the mask
         plt.imshow(mask, alpha=0.4, cmap='viridis')  # Adjust cmap based on your mask values
+
+        # Set axis limits to start from 0
+        plt.xlim(0, mask.shape[1])  # Adjust based on mask dimensions
+        plt.ylim(0, mask.shape[0])  # Adjust based on mask dimensions
 
         if box is not None:
             x_min, y_min, x_max, y_max = map(int, box)
