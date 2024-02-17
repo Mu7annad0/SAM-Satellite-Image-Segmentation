@@ -1,8 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
-from albumentations.pytorch import ToTensorV2
-import cv2
 import numpy as np
 from PIL import Image
 from glob import glob
@@ -10,7 +8,6 @@ from glob import glob
 from preprocessing import Preprocessing
 from utils import get_bounding_box, visualize, init_point_sampling
 from cfg import parse_args
-import matplotlib.pyplot as plt
 
 
 # Generic class to be inherited by the dataset classes

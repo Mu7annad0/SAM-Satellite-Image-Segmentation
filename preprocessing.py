@@ -1,7 +1,6 @@
 import numpy as np
 import albumentations as A
 import cv2
-import torch
 from albumentations.pytorch import ToTensorV2
 
 
@@ -66,10 +65,10 @@ class Preprocessing:
 
         This method checks the size of the image at the specified index.
         """
-        if original_width < self.patch_size or original_height < self.patch_size:
-            return False
-        else:
+        if original_width > self.patch_size and original_height > self.patch_size:
             return True
+        else:
+            return False
 
     def handle_small_image(self, small_image: np.ndarray, small_mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -108,7 +107,7 @@ class Preprocessing:
 
         transform_result = resize_transformer(image=large_image, mask=large_mask)
 
-        return resize_transformer(image=large_image)['image']
+        return transform_result['image'], transform_result['mask']
 
     def process_image(self, image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -125,12 +124,12 @@ class Preprocessing:
 
         # Check if the image is smaller or greater than the desired size
         is_bigger = self.check_image_size(w, h)
-        # Handle the smaller image size
-        if not is_bigger:
-            image, mask = self.handle_small_image(image, mask)
-        else:
-            # Handle the larger image size
+        # Handle the large image
+        if is_bigger:
             image, mask = self.handle_large_image(image, mask)
+        else:
+            # Handle the small image
+            image, mask = self.handle_small_image(image, mask)
 
         # Apply the initial transformation
         transformed = self.initial_transformation(image=image, mask=mask)
