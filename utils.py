@@ -130,9 +130,8 @@ def visualize_from_path(image_path, mask_path, box = True, points = True):
        
        
 def visualize(dataloader, num_images):
-    # Assuming dataloader is your DataLoader object
+    
     for batch in dataloader:
-        # Assuming 'image' and 'mask' are keys for images and masks in your batch
         images = batch['image']
         masks = batch['mask']
         box = batch['box']
