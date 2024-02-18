@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import torchvision.transforms as transforms
 import cv2
 import numpy as np
 from PIL import Image
@@ -30,7 +31,7 @@ def train_transform(img_size, orig_h, orig_w):
 
 class RoadDataset(Dataset):
 
-    def __init__(self, data_root, image_size = 256, train=True, box=True, points=None, transform=None):
+    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True, transform=None):
         """
         Args:
             data_root: The directory path where the dataset is stored or located.
@@ -54,8 +55,6 @@ class RoadDataset(Dataset):
         ])
         # List of image file paths.
         self.img_names = sorted(glob(self.data_root + '/*_sat.jpg'))
-        # Counter for transformed images.
-        self.transformed_images = 0
 
     def __len__(self):
         return len(self.img_names)
@@ -65,10 +64,14 @@ class RoadDataset(Dataset):
         mask_file_name = img_file_path.replace('.jpg', '.png').replace('sat', 'mask')
 
         image = Image.open(img_file_path).convert('RGB')
-        mask = Image.open(mask_file_name).convert('L')
+        mask = Image.open(mask_file_name).convert('L')        
 
         image, mask = np.asarray(image), np.asarray(mask)
-        mask = mask / 255
+        # image = ((image - np.mean(image)) / np.std(image))
+        
+        if mask.max() == 255:
+            mask = mask / 255
+
         h, w, _ = image.shape
 
         # Condition to check if the dataset is used for training
@@ -79,9 +82,6 @@ class RoadDataset(Dataset):
                 augmented = transformer(image=image, mask=mask)
                 image = augmented['image']
                 mask = augmented['mask']
-
-                # Append the transformed image to the list
-                self.transformed_images += 1
 
         else:
             transformed = self.initial_transform(image=image, mask=mask)
@@ -98,21 +98,18 @@ class RoadDataset(Dataset):
             boxes = None
         
         if self.points is True:
-            point_coords, point_labels = init_point_sampling(mask, get_point=8)
+            point_coords, point_labels = init_point_sampling(mask, get_point=4)
         else:
             point_coords = torch.zeros((0, 2))  # Empty tensor for coordinates
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
         return {
-                'image': torch.tensor(image).float(), 
-                'mask': torch.tensor(mask).float(), 
+                'image': torch.tensor(image).float(),
+                'mask': torch.tensor(mask).float(),
                 'box': boxes,
                 'point_coords' : point_coords,
                 'point_labels' : point_labels
             }
-
-    def get_num_images(self):
-        return self.transformed_images
 
 
 if __name__ == '__main__':
@@ -120,7 +117,7 @@ if __name__ == '__main__':
     args = parse_args()
 
     dataset = RoadDataset(args.train_root, 512, True, box = True, points=True, transform=True)
-    train_dataloader = DataLoader(dataset, 5, True)
+    train_dataloader = DataLoader(dataset, 3, True)
 
     for i, batch in enumerate(train_dataloader):
         image = batch['image']
@@ -128,6 +125,7 @@ if __name__ == '__main__':
         box = batch['box']
         points_coords = batch['point_coords']
         points_labels = batch['point_labels']
+        break
 
     print(len(dataset))
     print(f'shape of image: {image.shape}')  # [B, C, H, W]
@@ -135,5 +133,4 @@ if __name__ == '__main__':
     print(f'shape of box: {box.shape}')  # [B, 4]
     print(f'shape of point coors: {points_coords.shape}')  # [B, No_points, 2]
     print(f'shape of point labels: {points_labels.shape}')  # [B, No_points]
-
-    visualize(dataset, 3)
+    visualize(train_dataloader, 3)
