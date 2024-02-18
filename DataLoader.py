@@ -2,60 +2,35 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-import torchvision.transforms as transforms
 import cv2
 import numpy as np
 from PIL import Image
 from glob import glob
 from utils import get_bounding_box, visualize, init_point_sampling
 from cfg import parse_args
-import matplotlib.pyplot as plt
-
-
-def train_transform(img_size, orig_h, orig_w):
-
-    transforms = []
-    if orig_h < img_size and orig_w < img_size:
-        transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, 
-                                        border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
-    else:
-        transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
-
-    # transforms.append(A.HorizontalFlip(p=0.5))
-    # transforms.append(A.Rotate()),
-    transforms.append(A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
-    transforms.append(ToTensorV2(p=1.0))
-
-    return A.Compose(transforms, p=1.)
 
 
 class RoadDataset(Dataset):
 
-    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True, transform=None):
+    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True):
         """
         Args:
             data_root: The directory path where the dataset is stored or located.
             image_size: Desired size for input images.
             train: Flag indicating if the dataset is for training.
             box: Indicates if bounding box information is included.
-            transform: Data transformations to be applied on the training dataset.
+            points: Indicates if points is included.
         """
         self.data_root = data_root  
         self.train  = train  
-        self.transform = transform  
         self.box = box  
         self.points = points
         self.image_size = image_size 
+        # self.num_points = args.num_points
 
-        # Initial transformation pipeline for mostley validation and test datset.
-        self.initial_transform = A.Compose([
-            A.Resize(image_size, image_size),
-            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-            ToTensorV2()
-        ])
         # List of image file paths.
         self.img_names = sorted(glob(self.data_root + '/*_sat.jpg'))
-
+    
     def __len__(self):
         return len(self.img_names)
 
@@ -76,19 +51,16 @@ class RoadDataset(Dataset):
 
         # Condition to check if the dataset is used for training
         if self.train:
-            if self.transform is True:
-                # Obtain training transformation
-                transformer = train_transform(self.image_size, h, w)
-                augmented = transformer(image=image, mask=mask)
-                image = augmented['image']
-                mask = augmented['mask']
+            transformer = self.transformation(self.image_size, h, w, self.train)
+            augmented = transformer(image=image, mask=mask)
+            image = augmented['image']
+            mask = augmented['mask']
 
         else:
-            transformed = self.initial_transform(image=image, mask=mask)
-            image = transformed['image']
-            mask = transformed['mask']
-            # Append the transformed image to the list
-            self.transformed_images += 1
+            transformer = self.transformation(self.image_size, h, w, self.train)
+            augmented = transformer(image=image, mask=mask)
+            image = augmented['image']
+            mask = augmented['mask']
 
         # Condition to check if bounding boxes should be included
         if self.box is True:   
@@ -98,7 +70,7 @@ class RoadDataset(Dataset):
             boxes = None
         
         if self.points is True:
-            point_coords, point_labels = init_point_sampling(mask, get_point=4)
+            point_coords, point_labels = init_point_sampling(mask, get_point=6)
         else:
             point_coords = torch.zeros((0, 2))  # Empty tensor for coordinates
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
@@ -110,13 +82,31 @@ class RoadDataset(Dataset):
                 'point_coords' : point_coords,
                 'point_labels' : point_labels
             }
+    
+    def transformation(self, img_size, orig_h, orig_w, train=True):
 
+        transforms = []
+        if orig_h < img_size and orig_w < img_size:
+            transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, 
+                                            border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
+        else:
+            transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
+
+        if train:
+            transforms.append(A.HorizontalFlip(p=0.5))
+            transforms.append(A.Rotate()),
+        
+        transforms.append(A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
+        transforms.append(ToTensorV2(p=1.0))
+
+
+        return A.Compose(transforms, p=1.)
 
 if __name__ == '__main__':
       
     args = parse_args()
 
-    dataset = RoadDataset(args.train_root, 512, True, box = True, points=True, transform=True)
+    dataset = RoadDataset(args.train_root, 512, True, box = True, points=True)
     train_dataloader = DataLoader(dataset, 3, True)
 
     for i, batch in enumerate(train_dataloader):
