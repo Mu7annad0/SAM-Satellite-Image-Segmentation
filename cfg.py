@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument("--encoder_adapter", type=bool, default=True, help="use adapter")
     parser.add_argument('--lr', type=float, default=1e-4, help='initial learning rate')
     parser.add_argument('--propmt_grad', type=bool, default=False, help="propmt encoder grad")
-    parser.add_argument('--num_points', type=int, default=6)
+    parser.add_argument('--num_points', type=int, default=10)
     parser.add_argument('--box', type=bool, default=True, help="using box as prompt")
     parser.add_argument('--point', type=bool, default=True, help="using points as prompt")
 
