@@ -49,18 +49,10 @@ class RoadDataset(Dataset):
 
         h, w, _ = image.shape
 
-        # Condition to check if the dataset is used for training
-        if self.train:
-            transformer = self.transformation(self.image_size, h, w, self.train)
-            augmented = transformer(image=image, mask=mask)
-            image = augmented['image']
-            mask = augmented['mask']
-
-        else:
-            transformer = self.transformation(self.image_size, h, w, self.train)
-            augmented = transformer(image=image, mask=mask)
-            image = augmented['image']
-            mask = augmented['mask']
+        transformer = self.transformation(self.image_size, h, w, self.train)
+        augmented = transformer(image=image, mask=mask)
+        image = augmented['image']
+        mask = augmented['mask']
 
         # Condition to check if bounding boxes should be included
         if self.box is True:   
