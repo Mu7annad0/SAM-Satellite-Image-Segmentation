@@ -1,9 +1,10 @@
+import einops
 import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
 from torchvision.transforms.functional import to_pil_image
-from albumentations.pytorch import ToTensorV2
 import cv2
 import torch.nn.functional as F
 import albumentations as A
@@ -33,57 +34,6 @@ def get_bounding_box(ground_truth_map):
 
     return bbox
 
-
-def visualize(dataset, num_samples_to_visualize, box=True, points=True):
-
-    random_indices = torch.randperm(len(dataset))[:num_samples_to_visualize]
-
-    for index in random_indices:
-        image = dataset[index]['image']
-        mask = dataset[index]['mask']
-
-        if box:
-            boxes = dataset[index]['box']
-            box = boxes.numpy()
-
-        if points:
-            point_coords = dataset[index]['point_coords']
-            point_labels = dataset[index]['point_labels']
-
-        # Convert tensors to numpy arrays
-        image = image.numpy().squeeze().transpose(1, 2, 0)  # Handle batch dimension and reshape
-        mask = mask.numpy().squeeze().astype('uint8')
-
-        plt.clf()
-
-        # Plot the image
-        plt.imshow(image)
-        plt.title("Image with Mask, Bounding Box, and Points")
-
-        # Plot the mask
-        plt.imshow(mask, alpha=0.4, cmap='viridis')  # Adjust cmap based on your mask values
-
-        # Set axis limits to start from 0
-        plt.xlim(0, mask.shape[1])  # Adjust based on mask dimensions
-        plt.ylim(0, mask.shape[0])  # Adjust based on mask dimensions
-
-        if box is not None:
-            x_min, y_min, x_max, y_max = map(int, box)
-            width = x_max - x_min
-            height = y_max - y_min
-            rect = plt.Rectangle((x_min, y_min), width, height, linewidth=2, edgecolor='r', facecolor='none')
-            plt.gca().add_patch(rect)
-
-        if point_coords is not None:
-            for i, (x, y) in enumerate(point_coords):
-                if point_labels is not None and point_labels[i] == 1:
-                    color = 'green'  # Foreground point
-                else:
-                    color = 'blue'  # Background point
-                plt.scatter(x, y, c=color, s=40, marker='x')
-
-        plt.show()
-    
 
 def init_point_sampling(mask, get_point=1):
     """
@@ -129,6 +79,83 @@ def init_point_sampling(mask, get_point=1):
         coords, labels = torch.as_tensor(coords[indices], dtype=torch.float), torch.as_tensor(labels[indices], dtype=torch.int)
         return coords, labels
     
+
+# ------------------------------------------visualization-------------------------------------------------
+    
+
+def show_mask(mask, ax, random_color=False):
+    if random_color:
+        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    else:
+        color = np.array([30/255, 144/255, 255/255, 0.6])
+    h, w = mask.shape[-2:]
+    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+    ax.imshow(mask_image)
+    
+def show_points(coords, labels, ax, marker_size=375):
+    pos_points = coords[labels==1]
+    neg_points = coords[labels==0]
+    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='#57d459', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)   
+    
+def show_box(box, ax):
+    x0, y0 = box[0], box[1]
+    w, h = box[2] - box[0], box[3] - box[1]
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='#e605d5', facecolor=(0,0,0,0), lw=2))    
+
+
+def visualize_from_path(image_path, mask_path, box = True, points = True):
+    plt.figure(figsize=(10, 10))
+    image = Image.open(image_path).convert('RGB')
+    image = np.array(image)
+    mask = Image.open(mask_path).convert('L')
+    mask = np.array(mask)
+    if mask.max() == 255:
+            mask = mask / 255
+
+    plt.imshow(image)
+    show_mask(mask, plt.gca())
+    if box:
+        box = np.array(get_bounding_box(mask))
+        show_box(box, plt.gca())
+
+    if points:
+        points_coords, point_labels = init_point_sampling(mask, 8)
+        point_coords = np.array(points_coords)
+        point_labels = np.array(point_labels)    
+        show_points(point_coords, point_labels, plt.gca())  
+    
+    plt.axis('on')
+    plt.show()  
+       
+       
+def visualize(dataloader, num_images):
+    # Assuming dataloader is your DataLoader object
+    for batch in dataloader:
+        # Assuming 'image' and 'mask' are keys for images and masks in your batch
+        images = batch['image']
+        masks = batch['mask']
+        box = batch['box']
+        points_coords = batch['point_coords']
+        point_labels = batch['point_labels']
+        
+        # Iterate over images and masks in the batch
+        for image, mask, box, points_coords, point_labels in zip(images, masks, box, points_coords, point_labels):
+            image_pil = to_pil_image(image)
+            box = np.array((box))
+            # plt.figure(figsize=(10, 10))
+            plt.imshow(image_pil)
+            show_mask(mask, plt.gca())
+            show_box(box, plt.gca())
+            point_coords = np.array(points_coords)
+            point_labels = np.array(point_labels)  
+            show_points(point_coords, point_labels, plt.gca())  
+            plt.axis('on')
+            plt.show()  
+            num_images -= 1  # Decrement the count of images
+            if num_images == 0:
+                return 
+
 
 # ------------------------------------------loss functions------------------------------------------------
 # Focal loss
