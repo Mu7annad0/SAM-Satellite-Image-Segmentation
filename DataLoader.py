@@ -18,6 +18,7 @@ class RoadDataset(Dataset):
             train: Flag indicating if the dataset is for training.
             box: Indicates if bounding box information is included.
             points: Indicates if points is included.
+            transformation: modifying the characteristics or representation of data
         """
         self.data_root = data_root  
         self.train  = train  
@@ -40,7 +41,6 @@ class RoadDataset(Dataset):
         mask = Image.open(mask_file_name).convert('L')        
 
         image, mask = np.asarray(image), np.asarray(mask)
-        # image = ((image - np.mean(image)) / np.std(image))
         
         if mask.max() == 255:
             mask = mask / 255
