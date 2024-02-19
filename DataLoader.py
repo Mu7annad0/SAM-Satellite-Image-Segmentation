@@ -66,8 +66,8 @@ class RoadDataset(Dataset):
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
         return {
-                'image': image,
-                'mask': mask,
+                'image': image.float(),
+                'mask': mask.float(),
                 'box': boxes,
                 'point_coords' : point_coords,
                 'point_labels' : point_labels
