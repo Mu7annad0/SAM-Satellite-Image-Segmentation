@@ -217,9 +217,13 @@ class Attention(nn.Module):
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         # Input projections
-        q = self.q_proj(q)
-        k = self.k_proj(k)
-        v = self.v_proj(v)
+        q = self.q_proj(q.to(self.q_proj.weight.dtype)) #todo
+        k = self.k_proj(k.to(self.k_proj.weight.dtype)) #todo
+        v = self.v_proj(v.to(self.v_proj.weight.dtype)) #todo
+
+        # q = self.q_proj(q)
+        # k = self.k_proj(k)
+        # v = self.v_proj(v)
 
         # Separate into heads
         q = self._separate_heads(q, self.num_heads)
