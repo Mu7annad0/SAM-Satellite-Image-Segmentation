@@ -1,18 +1,16 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
-from albumentations.pytorch import ToTensorV2
-import cv2
 import numpy as np
 from PIL import Image
 from glob import glob
-from utils import get_bounding_box, visualize, init_point_sampling
+from utils import get_bounding_box, visualize, init_point_sampling, transformation
 from cfg import parse_args
 
 
 class RoadDataset(Dataset):
 
-    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True):
+    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True, transformation=transformation):
         """
         Args:
             data_root: The directory path where the dataset is stored or located.
@@ -26,7 +24,7 @@ class RoadDataset(Dataset):
         self.box = box  
         self.points = points
         self.image_size = image_size 
-        # self.num_points = args.num_points
+        self.transformation = transformation
 
         # List of image file paths.
         self.img_names = sorted(glob(self.data_root + '/*_sat.jpg'))
@@ -68,31 +66,13 @@ class RoadDataset(Dataset):
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
         return {
-                'image': torch.tensor(image).float(),
-                'mask': torch.tensor(mask).float(),
+                'image': image,
+                'mask': mask,
                 'box': boxes,
                 'point_coords' : point_coords,
                 'point_labels' : point_labels
             }
-    
-    def transformation(self, img_size, orig_h, orig_w, train=True):
 
-        transforms = []
-        if orig_h < img_size and orig_w < img_size:
-            transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, 
-                                            border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
-        else:
-            transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
-
-        if train:
-            transforms.append(A.HorizontalFlip(p=0.5))
-            transforms.append(A.Rotate()),
-        
-        transforms.append(A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
-        transforms.append(ToTensorV2(p=1.0))
-
-
-        return A.Compose(transforms, p=1.)
 
 if __name__ == '__main__':
       
