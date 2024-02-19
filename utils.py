@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision.transforms.functional import to_pil_image
+from albumentations.pytorch import ToTensorV2
 import cv2
 import torch.nn.functional as F
 import albumentations as A
@@ -80,6 +81,24 @@ def init_point_sampling(mask, get_point=1):
         return coords, labels
     
 
+def transformation(img_size, orig_h, orig_w, train=True):
+
+        transforms = []
+        if orig_h < img_size and orig_w < img_size:
+            transforms.append(A.PadIfNeeded(min_height=img_size, min_width=img_size, 
+                                            border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
+        else:
+            transforms.append(A.Resize(int(img_size), int(img_size), interpolation=cv2.INTER_NEAREST))
+
+        if train:
+            transforms.append(A.HorizontalFlip(p=0.5))
+            transforms.append(A.Rotate()),
+        
+        transforms.append(A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
+        transforms.append(ToTensorV2(p=1.0))
+
+
+        return A.Compose(transforms, p=1.)
 # ------------------------------------------visualization-------------------------------------------------
     
 
