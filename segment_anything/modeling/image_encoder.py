@@ -14,6 +14,48 @@ from .common import LayerNorm2d, MLPBlock
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
+
+class Adapter_Layer(nn.Module):
+    def __init__(self, embed_dim, mlp_ratio=0.25, norm_layer = nn.LayerNorm, skip_connect=True):
+        super().__init__()
+        self.skip_connect = skip_connect
+        hidden_dim = int(embed_dim * mlp_ratio)
+        self.norm = norm_layer(embed_dim)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.channel = nn.Sequential(
+                nn.Linear(embed_dim, hidden_dim, bias=False),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, embed_dim, bias=False),
+                nn.Sigmoid()
+        )
+
+        self.spatial = nn.Sequential(
+                nn.Conv2d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1, bias=False),
+                nn.ReLU(),
+                nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=4, stride=2, padding=1, bias=False),
+                nn.ReLU(),
+        )
+        
+        for m in self.modules():
+            if isinstance(m, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                
+    def forward(self, x):
+        #x -> （B, H, W, C）-> （B, C, H, W）
+        x = x.permute(0,3,1,2)
+        B, C, _, _ = x.size()
+        x_channel = self.channel(self.avg_pool(x).view(B, C)).view(B, C, 1, 1) * x
+        x_spatial = self.spatial(x_channel)
+        
+        if self.skip_connect:
+            x = x + x_spatial
+        else:
+            x = x_spatial
+        #（B, C, H, W） -> (B, H, W, C)
+        x = x.permute(0,2,3,1)
+        return self.norm(x)
+    
+
 class ImageEncoderViT(nn.Module):
     def __init__(
         self,
@@ -33,6 +75,7 @@ class ImageEncoderViT(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         global_attn_indexes: Tuple[int, ...] = (),
+        adapter_train = False
     ) -> None:
         """
         Args:
@@ -69,6 +112,7 @@ class ImageEncoderViT(nn.Module):
                 torch.zeros(1, img_size // patch_size, img_size // patch_size, embed_dim)
             )
 
+
         self.blocks = nn.ModuleList()
         for i in range(depth):
             block = Block(
@@ -82,6 +126,7 @@ class ImageEncoderViT(nn.Module):
                 rel_pos_zero_init=rel_pos_zero_init,
                 window_size=window_size if i not in global_attn_indexes else 0,
                 input_size=(img_size // patch_size, img_size // patch_size),
+                adapter = adapter_train,
             )
             self.blocks.append(block)
 
@@ -111,6 +156,7 @@ class ImageEncoderViT(nn.Module):
         for blk in self.blocks:
             x = blk(x)
 
+
         x = self.neck(x.permute(0, 3, 1, 2))
 
         return x
@@ -131,6 +177,7 @@ class Block(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         input_size: Optional[Tuple[int, int]] = None,
+        adapter: bool = False
     ) -> None:
         """
         Args:
@@ -149,6 +196,7 @@ class Block(nn.Module):
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
+        self.adapter = adapter
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -162,6 +210,9 @@ class Block(nn.Module):
         self.mlp = MLPBlock(embedding_dim=dim, mlp_dim=int(dim * mlp_ratio), act=act_layer)
 
         self.window_size = window_size
+        if self.adapter:
+            self.Adapter = Adapter_Layer(dim)
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
@@ -177,7 +228,12 @@ class Block(nn.Module):
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + x
-        x = x + self.mlp(self.norm2(x))
+
+        if self.adapter:
+            x_norm = self.norm2(x)
+            x = x + self.mlp(x_norm) + self.Adapter(x_norm)
+        else:
+            x = x + self.mlp(self.norm2(x))
 
         return x
 
@@ -351,6 +407,10 @@ def add_decomposed_rel_pos(
 
     B, _, dim = q.shape
     r_q = q.reshape(B, q_h, q_w, dim)
+
+    # r_q = r_q.to(torch.float) #todo   opt_level="O2" 模式下需要注释
+    r_q = r_q.to(Rh.dtype) #todo
+    
     rel_h = torch.einsum("bhwc,hkc->bhwk", r_q, Rh)
     rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
 
@@ -380,7 +440,7 @@ class PatchEmbed(nn.Module):
             stride (Tuple): stride of the projection layer.
             padding (Tuple): padding size of the projection layer.
             in_chans (int): Number of input image channels.
-            embed_dim (int): Patch embedding dimension.
+            embed_dim (int):  embed_dim (int): Patch embedding dimension.
         """
         super().__init__()
 
@@ -392,5 +452,4 @@ class PatchEmbed(nn.Module):
         x = self.proj(x)
         # B C H W -> B H W C
         x = x.permute(0, 2, 3, 1)
-        return x  
-          
+        return x
