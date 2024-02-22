@@ -111,6 +111,14 @@ class RoadDataset(BaseDataset):
         return sorted(glob(self.data_root + '/*_mask.png'))
 
 
+class DubaiDataset(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/*/images/*'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/*/masks/*'))
+
+
 if __name__ == '__main__':
     args = parse_args()
 
