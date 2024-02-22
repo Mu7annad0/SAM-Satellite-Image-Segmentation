@@ -8,6 +8,7 @@ def parse_args():
     parser.add_argument("--train_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/train/")
     parser.add_argument("--valid_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/valid/")
     parser.add_argument("--test_root", type=str, default="../../graduating_project/Dataset/DeepGlobeRoadExtraction/road/test/")
+    parser.add_argument("--dubai_root", type=str, default="../dubai_dataset/")
     parser.add_argument('--device', type=str, default='mps')
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--model_type', type=str, default='vit_b', help='sam model_type')
