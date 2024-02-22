@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torch.nn import functional as F
 import torch.optim as optim
 from tqdm import tqdm
-from DataLoader import RoadDataset, train_transform
+from datasets import RoadDataset, train_transform
 from cfg import parse_args
 from segment_anything import SamPredictor, sam_model_registry
 from utils import FocalDiceloss_IoULoss

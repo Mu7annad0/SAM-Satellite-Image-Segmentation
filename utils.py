@@ -4,10 +4,53 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+from albumentations.pytorch import ToTensorV2
 from torchvision.transforms.functional import to_pil_image
 import cv2
 import torch.nn.functional as F
 import albumentations as A
+
+
+def patchify(image, patch_size):
+    """
+    This function returns a list of patches of the input image.
+    """
+    height, width = image.shape[:2]
+    patches = []
+
+    for i in range(0, height, patch_size):
+        for j in range(0, width, patch_size):
+            patch = image[i:i + patch_size, j:j + patch_size]
+            patches.append(patch)
+
+    return patches
+
+
+def get_transformations(image_size, original_height, original_width, train=True, patch=False):
+    """
+    This function returns the transformations to be applied to the images and masks.
+    """
+    transforms = []
+    # Check if the image size is less than the required size
+    if original_height < image_size and original_width < image_size:
+        transforms.append(A.PadIfNeeded(min_height=image_size, min_width=image_size,
+                                        border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)))
+    else:
+        # Check to patchify or resize the image
+        if patch:
+            transforms.append(A.Lambda(image=lambda x: np.array(patchify(x, image_size))))
+        else:
+            transforms.append(A.Resize(int(image_size), int(image_size), interpolation=cv2.INTER_NEAREST))
+    # Data augmentation for training
+    if train:
+        transforms.append(A.HorizontalFlip(p=0.5))
+        transforms.append(A.Rotate()),
+
+    transforms.append(A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
+    transforms.append(ToTensorV2(p=1.0))
+
+    return A.Compose(transforms, p=1.)
+
 
 
 def get_bounding_box(ground_truth_map):
