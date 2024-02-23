@@ -122,8 +122,8 @@ class DubaiDataset(BaseDataset):
 if __name__ == '__main__':
     args = parse_args()
 
-    dataset = RoadDataset(args.train_root, is_train=True, is_box=True)
-    train_dataloader = DataLoader(dataset, 5, True)
+    dataset = DubaiDataset(args.dubai_root, is_train=False, is_box=True)
+    train_dataloader = DataLoader(dataset, 1)
 
     for i, batch in enumerate(train_dataloader):
         image = batch['image']
@@ -140,4 +140,4 @@ if __name__ == '__main__':
     print(f'shape of point coors: {points_coords.shape}')  # [B, No_points, 2]
     print(f'shape of point labels: {points_labels.shape}')  # [B, No_points]
 
-    visualize(train_dataloader, 3)
+    visualize(train_dataloader, 5)
