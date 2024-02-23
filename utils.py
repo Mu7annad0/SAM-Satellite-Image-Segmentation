@@ -1,3 +1,5 @@
+from typing import Dict, Any
+
 import einops
 import torch
 import torch.nn as nn
@@ -9,21 +11,6 @@ from torchvision.transforms.functional import to_pil_image
 import cv2
 import torch.nn.functional as F
 import albumentations as A
-
-
-def patchify(image, patch_size):
-    """
-    This function returns a list of patches of the input image.
-    """
-    height, width = image.shape[:2]
-    patches = []
-
-    for i in range(0, height, patch_size):
-        for j in range(0, width, patch_size):
-            patch = image[i:i + patch_size, j:j + patch_size]
-            patches.append(patch)
-
-    return patches
 
 
 def get_transformations(image_size, original_height, original_width, train=True, patch=False):
@@ -38,7 +25,7 @@ def get_transformations(image_size, original_height, original_width, train=True,
     else:
         # Check to patchify or resize the image
         if patch:
-            transforms.append(A.Lambda(image=lambda x: np.array(patchify(x, image_size))))
+            transforms.append(A.RandomCrop(height=image_size, width=image_size, p=1.0))
         else:
             transforms.append(A.Resize(int(image_size), int(image_size), interpolation=cv2.INTER_NEAREST))
     # Data augmentation for training
@@ -61,12 +48,12 @@ def get_bounding_box(ground_truth_map):
     if np.count_nonzero(ground_truth_array) == 0:
           # If there are no non-zero values, return a default bounding box or handle it as needed
           return [0, 0, 1, 1]
-    
+
     # get bounding box from mask
     y_indices, x_indices = np.where(ground_truth_array > 0)
     x_min, x_max = np.min(x_indices), np.max(x_indices)
     y_min, y_max = np.min(y_indices), np.max(y_indices)
-    
+
     # add perturbation to bounding box coordinates
     H, W = ground_truth_array.shape
     x_min = max(0, x_min - np.random.randint(0, 20))
@@ -90,7 +77,7 @@ def init_point_sampling(mask, get_point=1):
     """
     if isinstance(mask, torch.Tensor):
         mask = mask.numpy()
-        
+
      # Get coordinates of black/white pixels
     fg_coords = np.argwhere(mask == 1)[:,::-1]
     bg_coords = np.argwhere(mask == 0)[:,::-1]
@@ -108,7 +95,7 @@ def init_point_sampling(mask, get_point=1):
             fg_coord = bg_coords[index]
             label = 0
         return torch.as_tensor([fg_coord.tolist()], dtype=torch.float), torch.as_tensor([label], dtype=torch.int)
-    
+
     else:
         num_fg = get_point // 2
         num_bg = get_point - num_fg
@@ -121,10 +108,10 @@ def init_point_sampling(mask, get_point=1):
         indices = np.random.permutation(get_point)
         coords, labels = torch.as_tensor(coords[indices], dtype=torch.float), torch.as_tensor(labels[indices], dtype=torch.int)
         return coords, labels
-    
+
 
 # ------------------------------------------visualization-------------------------------------------------
-    
+
 
 def show_mask(mask, ax, random_color=False):
     if random_color:
@@ -134,17 +121,17 @@ def show_mask(mask, ax, random_color=False):
     h, w = mask.shape[-2:]
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
-    
+
 def show_points(coords, labels, ax, marker_size=375):
     pos_points = coords[labels==1]
     neg_points = coords[labels==0]
     ax.scatter(pos_points[:, 0], pos_points[:, 1], color='#57d459', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)   
-    
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+
 def show_box(box, ax):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
-    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='#FF8000', facecolor=(0,0,0,0), lw=2))    
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='#FF8000', facecolor=(0,0,0,0), lw=2))
 
 
 def visualize_from_path(image_path, mask_path, box = True, points = True):
@@ -165,22 +152,22 @@ def visualize_from_path(image_path, mask_path, box = True, points = True):
     if points:
         points_coords, point_labels = init_point_sampling(mask, 8)
         point_coords = np.array(points_coords)
-        point_labels = np.array(point_labels)    
-        show_points(point_coords, point_labels, plt.gca())  
-    
+        point_labels = np.array(point_labels)
+        show_points(point_coords, point_labels, plt.gca())
+
     plt.axis('on')
-    plt.show()  
-       
-       
+    plt.show()
+
+
 def visualize(dataloader, num_images):
-    
+
     for batch in dataloader:
         images = batch['image']
         masks = batch['mask']
         box = batch['box']
         points_coords = batch['point_coords']
         point_labels = batch['point_labels']
-        
+
         # Iterate over images and masks in the batch
         for image, mask, box, points_coords, point_labels in zip(images, masks, box, points_coords, point_labels):
             image_pil = to_pil_image(image)
@@ -190,13 +177,13 @@ def visualize(dataloader, num_images):
             show_mask(mask, plt.gca())
             show_box(box, plt.gca())
             point_coords = np.array(points_coords)
-            point_labels = np.array(point_labels)  
-            show_points(point_coords, point_labels, plt.gca())  
+            point_labels = np.array(point_labels)
+            show_points(point_coords, point_labels, plt.gca())
             plt.axis('on')
-            plt.show()  
+            plt.show()
             num_images -= 1  # Decrement the count of images
             if num_images == 0:
-                return 
+                return
 
 
 # ------------------------------------------loss functions------------------------------------------------
@@ -226,10 +213,10 @@ class FocalLoss(nn.Module):
         loss = (torch.sum(loss_pos) + torch.sum(loss_neg)) / (num_pos + num_neg + 1e-12)
 
         return loss
-    
+
 
 # Dice Loss
-    
+
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1.0):
         super(DiceLoss, self).__init__()
@@ -256,24 +243,24 @@ class IoULoss(nn.Module):
         super(IoULoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
-        
+
         #comment out if your model contains a sigmoid or equivalent activation layer
-        inputs = F.sigmoid(inputs)       
-        
+        inputs = F.sigmoid(inputs)
+
         #flatten label and prediction tensors
         inputs = inputs.view(-1)
         targets = targets.view(-1)
-        
+
         #intersection is equivalent to True Positive count
-        #union is the mutually inclusive area of all labels & predictions 
+        #union is the mutually inclusive area of all labels & predictions
         intersection = (inputs * targets).sum()
         total = (inputs + targets).sum()
-        union = total - intersection 
-        
+        union = total - intersection
+
         IoU = (intersection + smooth)/(union + smooth)
-                
+
         return 1 - IoU
-       
+
 
 class MaskIoULoss(nn.Module):
 
@@ -294,12 +281,12 @@ class MaskIoULoss(nn.Module):
         iou = (intersection + 1e-7) / (union + 1e-7)
         iou_loss = torch.mean((iou - pred_iou) ** 2)
         return iou_loss
-    
+
 
 
 # FocalDiceloss_IoULoss
 class FocalDiceloss_IoULoss(nn.Module):
-    
+
     def __init__(self, weight=20.0, iou_scale=1.0):
         super(FocalDiceloss_IoULoss, self).__init__()
         self.weight = weight
@@ -366,7 +353,7 @@ def dice(pr, gt, eps=1e-7, threshold = 0.5):
 
 
 def SegMetrics(pred, label, metrics):
-    metric_list = []  
+    metric_list = []
     if isinstance(metrics, str):
         metrics = [metrics, ]
     for i, metric in enumerate(metrics):
