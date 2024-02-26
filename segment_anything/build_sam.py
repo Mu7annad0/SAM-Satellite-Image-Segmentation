@@ -17,7 +17,7 @@ def build_sam_vit_h(args):
         encoder_global_attn_indexes=[7, 15, 23, 31],
         image_size=args.image_size,
         checkpoint=args.checkpoint,
-        encoder_adapter = args.encoder_adapter,
+        encoder_adapter = args.use_adapter,
     )
 
 
@@ -32,7 +32,7 @@ def build_sam_vit_l(args):
         encoder_global_attn_indexes=[5, 11, 17, 23],
         image_size=args.image_size,
         checkpoint=args.checkpoint,
-        encoder_adapter = args.encoder_adapter,
+        encoder_adapter = args.use_adapter,
     )
 
 
