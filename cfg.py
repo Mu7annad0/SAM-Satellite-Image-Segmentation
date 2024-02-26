@@ -4,7 +4,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--num_epochs", type=int, default=1)
+    parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--img_size", type=int, default=512)
     parser.add_argument("--train_root", type=str,
                         default="../Dataset/DeepGlobeRoadExtraction/road/train/")
