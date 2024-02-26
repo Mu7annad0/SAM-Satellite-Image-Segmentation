@@ -10,7 +10,7 @@ from cfg import parse_args
 
 class RoadDataset(Dataset):
 
-    def __init__(self, data_root, image_size = 512, train=True, box=True, points=True, transformation=transformation):
+    def __init__(self, data_root, image_size=512, train=True, box=True, points=True, transformation=transformation):
         """
         Args:
             data_root: The directory path where the dataset is stored or located.
@@ -20,16 +20,16 @@ class RoadDataset(Dataset):
             points: Indicates if points is included.
             transformation: modifying the characteristics or representation of data
         """
-        self.data_root = data_root  
-        self.train  = train  
-        self.box = box  
+        self.data_root = data_root
+        self.train = train
+        self.box = box
         self.points = points
-        self.image_size = image_size 
+        self.image_size = image_size
         self.transformation = transformation
 
         # List of image file paths.
         self.img_names = sorted(glob(self.data_root + '/*_sat.jpg'))
-    
+
     def __len__(self):
         return len(self.img_names)
 
@@ -38,10 +38,10 @@ class RoadDataset(Dataset):
         mask_file_name = img_file_path.replace('.jpg', '.png').replace('sat', 'mask')
 
         image = Image.open(img_file_path).convert('RGB')
-        mask = Image.open(mask_file_name).convert('L')        
+        mask = Image.open(mask_file_name).convert('L')
 
         image, mask = np.asarray(image), np.asarray(mask)
-        
+
         if mask.max() == 255:
             mask = mask / 255
 
@@ -53,32 +53,32 @@ class RoadDataset(Dataset):
         mask = augmented['mask']
 
         # Condition to check if bounding boxes should be included
-        if self.box is True:   
+        if self.box is True:
             boxes = get_bounding_box(mask)
             boxes = torch.tensor(boxes).float()
         else:
             boxes = None
-        
-        if self.points is True:
-            point_coords, point_labels = init_point_sampling(mask, get_point=6)
+
+        if self.points is not None:
+            point_coords, point_labels = init_point_sampling(mask, get_point=self.points)
         else:
             point_coords = torch.zeros((0, 2))  # Empty tensor for coordinates
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
         return {
-                'image': image.float(),
-                'mask': mask.float(),
-                'box': boxes,
-                'point_coords' : point_coords,
-                'point_labels' : point_labels
-            }
+            'image': image.float(),
+            'mask': mask.float(),
+            'box': boxes,
+            'point_coords': point_coords,
+            'point_labels': point_labels
+        }
 
 
 if __name__ == '__main__':
-      
+
     args = parse_args()
 
-    dataset = RoadDataset(args.train_root, 512, True, box = True, points=True)
+    dataset = RoadDataset(args.train_root, 512, True, box=True, points=20)
     train_dataloader = DataLoader(dataset, 3, True)
 
     for i, batch in enumerate(train_dataloader):
