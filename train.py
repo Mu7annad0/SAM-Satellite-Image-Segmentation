@@ -104,7 +104,7 @@ def main(args):
 
     device = torch.device(args.device)
 
-    model = sam_model_registry[args.model_type](checkpoint=args.checkpoint).to(device)
+    model = sam_model_registry[args.model_type](args).to(device)
     criterion = FocalDiceloss_IoULoss()
     optimizer = optim.Adam(model.mask_decoder.parameters(), lr=args.lr, weight_decay=0)
 
