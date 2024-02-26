@@ -36,15 +36,15 @@ def build_sam_vit_l(args):
     )
 
 
-def build_sam_vit_b(checkpoint, image_size = 512, encoder_adapter = True):
+def build_sam_vit_b(args):
     return _build_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
-        image_size=image_size,
-        checkpoint=checkpoint,
-        encoder_adapter = encoder_adapter,
+        image_size=args.image_size,
+        checkpoint=args.checkpoint,
+        encoder_adapter = args.use_adapter,
 
     )
 
