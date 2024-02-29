@@ -4,7 +4,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--num_epochs", type=int, default=2)
+    parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument("--img_size", type=int, default=512)
     parser.add_argument("--train_root", type=str,
                         default="../Dataset/DeepGlobeRoadExtraction/road/train/")
@@ -27,7 +27,8 @@ def parse_args():
     parser.add_argument('--point', type=bool, default=True, help="using points as prompt")
     parser.add_argument('--use_adapter', type=bool, default=False, help="using adpter in the training")
     parser.add_argument("--point_list", type=list, default=[1, 3, 5, 9], help="point_list")
-    parser.add_argument("--use_scheduler", type=bool, default=False, help="use scheduler")
+    parser.add_argument("--use_scheduler", type=bool, default=True, help="use scheduler")
+    parser.add_argument("--early_stop", type=bool, default=True, help="early stop the training process")
 
     args = parser.parse_args()
     return args
