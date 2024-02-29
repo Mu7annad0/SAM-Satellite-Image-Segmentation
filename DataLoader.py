@@ -1,6 +1,5 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-import albumentations as A
 import numpy as np
 from PIL import Image
 from glob import glob
@@ -8,37 +7,43 @@ from utils import get_bounding_box, visualize, init_point_sampling, transformati
 from cfg import parse_args
 
 
-class RoadDataset(Dataset):
-
-    def __init__(self, data_root, image_size=512, train=True, box=True, points=True, transformation=transformation):
+class BaseDataset(Dataset):
+    def __init__(self, data_root, image_size=512, is_train=True, is_box=True, points=None,
+                 transformation=transformation):
         """
         Args:
             data_root: The directory path where the dataset is stored or located.
             image_size: Desired size for input images.
-            train: Flag indicating if the dataset is for training.
-            box: Indicates if bounding box information is included.
-            points: Indicates if points is included.
-            transformation: modifying the characteristics or representation of data
+            is_train: Flag indicating if the dataset is for training.
+            is_box: Indicates if bounding box information is included.
+            points: Number of points 
         """
         self.data_root = data_root
-        self.train = train
-        self.box = box
-        self.points = points
         self.image_size = image_size
+        self.is_box = is_box
+        self.points = points
+        self.is_train = is_train
         self.transformation = transformation
 
         # List of image file paths.
-        self.img_names = sorted(glob(self.data_root + '/*_sat.jpg'))
+        self.image_paths = self.list_image_files()
+        self.mask_paths = self.list_mask_files()
+
+    def list_image_files(self):
+        pass
+
+    def list_mask_files(self):
+        pass
 
     def __len__(self):
-        return len(self.img_names)
+        return len(self.image_paths)
 
     def __getitem__(self, index):
-        img_file_path = self.img_names[index]
-        mask_file_name = img_file_path.replace('.jpg', '.png').replace('sat', 'mask')
+        img_file_path = self.image_paths[index]
+        mask_file_path = self.mask_paths[index]
 
         image = Image.open(img_file_path).convert('RGB')
-        mask = Image.open(mask_file_name).convert('L')
+        mask = Image.open(mask_file_path).convert('L')
 
         image, mask = np.asarray(image), np.asarray(mask)
 
@@ -47,13 +52,13 @@ class RoadDataset(Dataset):
 
         h, w, _ = image.shape
 
-        transformer = self.transformation(self.image_size, h, w, self.train)
+        transformer = self.transformation(self.image_size, h, w, self.is_train)
         augmented = transformer(image=image, mask=mask)
         image = augmented['image']
         mask = augmented['mask']
 
         # Condition to check if bounding boxes should be included
-        if self.box is True:
+        if self.is_box is True:
             boxes = get_bounding_box(mask)
             boxes = torch.tensor(boxes).float()
         else:
@@ -74,11 +79,27 @@ class RoadDataset(Dataset):
         }
 
 
+class RoadDataset(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/*_sat.jpg'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/*_mask.png'))
+
+
+class DubaiDataset(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/*/images/*'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/*/masks/*'))
+
+
 if __name__ == '__main__':
 
     args = parse_args()
 
-    dataset = RoadDataset(args.train_root, 512, True, box=True, points=20)
+    dataset = RoadDataset(args.train_root, 512, True, True, points=20)
     train_dataloader = DataLoader(dataset, 3, True)
 
     for i, batch in enumerate(train_dataloader):
