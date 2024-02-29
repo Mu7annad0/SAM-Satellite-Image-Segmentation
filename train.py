@@ -1,122 +1,214 @@
 import os
+import numpy as np
 import einops
 import torch
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
 import torch.optim as optim
 from tqdm import tqdm
-from datasets import RoadDataset, train_transform
+from DataLoader import RoadDataset, train_transform
 from cfg import parse_args
-from segment_anything import SamPredictor, sam_model_registry
-from utils import FocalDiceloss_IoULoss
+from segment_anything import sam_model_registry
+from utils import FocalDiceloss_IoULoss, SegMetrics, EarlyStopping
 
 
-args = parse_args()
-ckeckpoint_dir = args.checkpoint
-train_root = args.train_root
-device = torch.device(args.device)
+def prompt_mask_blocks(args, model, image_embedding, points, box, train_mode=True):
+    if train_mode:
 
-model_save_path = os.path.join(args.work_dir, args.run_name)
-os.makedirs(model_save_path, exist_ok=True)
-model = sam_model_registry[args.model_type](checkpoint=ckeckpoint_dir).to(device)
+        if args.propmt_grad is True:
+            sparse_embeddings, dense_embeddings = model.prompt_encoder(
+                points=points,
+                boxes=box,
+                masks=None
+            )
+        else:
+            with torch.no_grad():
+                sparse_embeddings, dense_embeddings = model.prompt_encoder(
+                    points=points,
+                    boxes=box,
+                    masks=None
+                )
 
-dataset = RoadDataset(train_root, 1024, "train", box = True, transform=train_transform)
-train_dataloader = DataLoader(dataset, 4, True)
+        # Generate the predicted masks and IoU predictions using the mask decoder
+        low_res_masks, iou_pred = model.mask_decoder(
+            image_embeddings=image_embedding,
+            image_pe=model.prompt_encoder.get_dense_pe(),
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=False
+        )
+
+    else:
+
+        with torch.no_grad():
+            sparse_embeddings, dense_embeddings = model.prompt_encoder(
+                points=points,
+                boxes=box,
+                masks=None
+            )
+
+            low_res_masks, iou_pred = model.mask_decoder(
+                image_embeddings=image_embedding,
+                image_pe=model.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=False
+            )
+
+    # The pred_masks in shape of [B, C, 256, 256] we need to upsample or downsample to the img input size
+    # So the below line will # Resize to the ordered output size
+    pred_masks = F.interpolate(low_res_masks, size=(args.img_size, args.img_size))
+
+    return pred_masks, iou_pred
 
 
 def train_sam(args, model, optimizer, criterion, train_loader, device, epoch):
-
-    epoch_loss = 0
-
+    epoch_losses = []
+    train_iter_metrics = [0] * len(args.metrics)
     model.train()
-    optimizer.zero_grad()
 
-    with tqdm(total=len(train_loader), desc=f'Epoch {epoch}', unit='img') as pbar:
-        for pack in train_loader:
+    with tqdm(total=len(train_loader), desc=f'Epoch {epoch + 1} Training', unit='img') as pbar:
+        for batch in train_loader:
+            # print("-----start training-----")
+            image = batch['image'].to(device)
+            mask = batch['mask'].to(device)
+            box = batch['box'].to(device)
+            point_coords = batch["point_coords"]
+            point_labels = batch["point_labels"]
 
-            image = pack['image'].to(device)
-            mask = pack['mask'].to(device)
+            # Convert point coordinates and labels to torch tensors and move to device
+            coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=device)
+            labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=device)
 
-            if 'box' in pack:
-                box = pack['box']
+            points = (coords_torch, labels_torch)
 
-            for name, param in model.named_parameters():
-                param.requires_grad = "image_encoder" not in name
+            if args.use_adapter:
+                for name, param in model.image_encoder.named_parameters():
+                    if "Adapter" in name:
+                        param.requires_grad = True
+                    else:
+                        param.requires_grad = False
 
-            image_embedding = model.image_encoder(image)
-
-            if args.propmt_grad is True:
-                sparse_embeddings, dense_embeddings = model.prompt_encoder(
-                points = None,
-                boxes = box.to(device),
-                masks = None
-            )
             else:
-                with torch.no_grad():
-                    sparse_embeddings, dense_embeddings = model.prompt_encoder(
-                    points = None,
-                    boxes = box.to(device),
-                    masks = None
-            )
-            pred_masks, iou_pred = model.mask_decoder(
-                    image_embeddings = image_embedding.to(device),
-                    image_pe = model.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings = sparse_embeddings,
-                    dense_prompt_embeddings = dense_embeddings,
-                    multimask_output = False
-            )       
-            
-            # The pred_masks in shape of [B, C, 256, 256] we need to upsample or downsample to the img input size 
-            # So the below line will ## Resize to the ordered output size
-            pred = F.interpolate(pred_masks,size=(args.img_size, args.img_size))
+                for name, param in model.named_parameters():
+                    param.requires_grad = "image_encoder" not in name
+
+            image_embedding = (model.image_encoder(image)).to(device)
+
+            pred_masks, iou_pred = prompt_mask_blocks(args, model, image_embedding, points, box, True)
 
             # to add the mask to the loss function it need to be shape of [B, 1, H, W] (1)
             # but it in shape of [B, H, W] (2), so the blow line convert from shape 2 --> 1
             mask = einops.repeat(mask, "b h w -> b 1 h w")
 
-            loss = criterion(pred, mask, iou_pred)
+            loss = criterion(pred_masks, mask, iou_pred)
 
-            pbar.set_postfix(**{'loss (batch)': loss.item()})
-            epoch_loss += loss.item()
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            pbar.update()
+            epoch_losses.append(loss.item())
 
-    return epoch_loss
+            batch_metrics = SegMetrics(pred_masks, mask, args.metrics)
+            epoch_metrics = [train_iter_metrics[i] + batch_metrics[i] for i in range(len(args.metrics))]
+
+            pbar.update(1)
+
+    return epoch_losses, epoch_metrics
 
 
-def validate_sam(args, model, epoch, criterion, val_loader, device):
-
+def validate_sam(args, model, criterion, val_loader, device, epoch):
+    epoch_losses = []
+    valid_iter_metrics = [0] * len(args.metrics)
     model.eval()
 
-    with tqdm(total=len(val_loader), desc='Validation round', unit='batch', leave=False) as pbar:
-        for pack in enumerate(val_loader):
+    with tqdm(total=len(val_loader), desc=f'Validtion', unit='img') as pbar:
+        for batch in val_loader:
+            image = batch['image'].to(device)
+            mask = batch['mask'].to(device)
+            box = batch['box'].to(device)
+            point_coords = batch["point_coords"]
+            point_labels = batch["point_labels"]
 
-            image = pack['image'].to(device)
-            mask = pack['mask'].to(device)
+            coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=device)
+            labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=device)
 
-            if 'box' in pack:
-                box = pack['box']
+            points = (coords_torch, labels_torch)
 
-            with torch.no_grad():
-                image_embedding= model.image_encoder(image)
+            for name, param in model.named_parameters():
+                param.requires_grad = "image_encoder" not in name
 
-                sparse_embeddings, dense_embeddings = model.prompt_encoder(
-                points = None,
-                boxes = box.to(device),
-                masks = None)
+            image_embedding = (model.image_encoder(image)).to(device)
 
-                pred_masks, iou_pred = model.mask_decoder(
-                    image_embeddings = image_embedding.to(device),
-                    image_pe = model.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings = sparse_embeddings,
-                    dense_prompt_embeddings = dense_embeddings,
-                    multimask_output = False)
-                
-                pred = F.interpolate(pred_masks,size=(args.out_size,args.out_size))
-                tot += criterion(pred, mask, iou_pred)
+            pred_masks, iou_pred = prompt_mask_blocks(args, model, image_embedding, points, box, False)
 
-            pbar.update()
+            mask = einops.repeat(mask, "b h w -> b 1 h w")
 
-    return tot/len(val_loader)
+            loss = criterion(pred_masks, mask, iou_pred)
+            epoch_losses.append(loss.item())
+
+            batch_metrics = SegMetrics(pred_masks, mask, args.metrics)
+            epoch_metrics = [valid_iter_metrics[i] + batch_metrics[i] for i in range(len(args.metrics))]
+
+            pbar.update(1)
+
+    return epoch_losses, epoch_metrics
+
+
+def main(args):
+    device = torch.device(args.device)
+
+    model = sam_model_registry[args.model_type](args).to(device)
+    criterion = FocalDiceloss_IoULoss()
+    optimizer = optim.Adam(model.mask_decoder.parameters(), lr=args.lr, weight_decay=0)
+    early_stop = EarlyStopping(patience=4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.3, patience=3, verbose=True)
+
+    model_save_path = os.path.join(args.work_dir, args.run_name)
+    os.makedirs(model_save_path, exist_ok=True)
+
+    # load the datasets
+    train_dataset = RoadDataset(args.train_root, points=15)
+    train_dataloader = DataLoader(train_dataset, args.batch_size, True)
+
+    valid_dataset = RoadDataset(args.valid_root, is_train=False, points=15)
+    valid_dataloader = DataLoader(valid_dataset, args.batch_size, True)
+
+    best_loss = 9e10
+
+    for i in range(args.num_epochs):
+
+        train_loss, _ = train_sam(args, model, optimizer, criterion, train_dataloader, device, i)
+
+        valid_loss, valid_metrics = validate_sam(args, model, criterion, valid_dataloader, device, i)
+
+        valid_metrics = [metric / len(valid_dataloader) for metric in valid_metrics]
+        valid_metrics = {args.metrics[i]: '{:.4}'.format(valid_metrics[i])
+                         for i in range(len(valid_metrics))}
+
+        average_train_loss = np.mean(train_loss)
+        average_valid_loss = np.mean(valid_loss)
+
+        if args.use_scheduler:
+            scheduler.step(average_valid_loss)
+
+        # early stopping
+        if args.early_stop:
+            early_stop(average_valid_loss)
+            if early_stop.early_stop:
+                break
+        
+        # saving the ck
+        if average_valid_loss < best_loss:
+            best_loss = average_valid_loss
+            model_saving = os.path.join(model_save_path, f"epoch_{i + 1}_SamSatellite.pth")
+            state = {'model': model.float().state_dict(), 'optimizer': optimizer}
+            torch.save(state, model_saving)
+
+        print(f"<-------------> Train_loss {average_train_loss:.4f} | Valid_loss {average_valid_loss:.4f} | "
+              f"IOU_Score {valid_metrics['iou']} | Dice_Score {valid_metrics['dice']} \n ")
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)

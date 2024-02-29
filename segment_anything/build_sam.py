@@ -15,9 +15,9 @@ def build_sam_vit_h(args):
         encoder_depth=32,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[7, 15, 23, 31],
-        image_size=args.image_size,
+        image_size=args.img_size,
         checkpoint=args.checkpoint,
-        encoder_adapter = args.encoder_adapter,
+        encoder_adapter = args.use_adapter
     )
 
 
@@ -30,21 +30,21 @@ def build_sam_vit_l(args):
         encoder_depth=24,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[5, 11, 17, 23],
-        image_size=args.image_size,
+        image_size=args.img_size,
         checkpoint=args.checkpoint,
-        encoder_adapter = args.encoder_adapter,
+        encoder_adapter = args.use_adapter
     )
 
 
-def build_sam_vit_b(checkpoint, image_size = 512, encoder_adapter = True):
+def build_sam_vit_b(args):
     return _build_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
-        image_size=image_size,
-        checkpoint=checkpoint,
-        encoder_adapter = encoder_adapter,
+        image_size=args.img_size,
+        checkpoint=args.checkpoint,
+        encoder_adapter = args.use_adapter
 
     )
 
