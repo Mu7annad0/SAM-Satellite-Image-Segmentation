@@ -9,7 +9,7 @@ from tqdm import tqdm
 from DataLoader import RoadDataset
 from cfg import parse_args
 from segment_anything import sam_model_registry
-from utils import FocalDiceloss_IoULoss, SegMetrics
+from utils import FocalDiceloss_IoULoss, SegMetrics, EarlyStopping
 
 
 def prompt_mask_blocks(args, model, image_embedding, points, box, train_mode=True):
@@ -67,7 +67,7 @@ def train_sam(args, model, optimizer, criterion, train_loader, device, epoch):
     train_iter_metrics = [0] * len(args.metrics)
     model.train()
 
-    with tqdm(total=len(train_loader), desc=f'Epoch {epoch + 1} Training ', unit='img') as pbar:
+    with tqdm(total=len(train_loader), desc=f'Epoch {epoch + 1} Training', unit='img') as pbar:
         for batch in train_loader:
             # print("-----start training-----")
             image = batch['image'].to(device)
@@ -122,7 +122,7 @@ def validate_sam(args, model, criterion, val_loader, device, epoch):
     valid_iter_metrics = [0] * len(args.metrics)
     model.eval()
 
-    with tqdm(total=len(val_loader), desc=f'Epoch {epoch + 1} Validtion', unit='img') as pbar:
+    with tqdm(total=len(val_loader), desc=f'Validtion', unit='img') as pbar:
         for batch in val_loader:
             image = batch['image'].to(device)
             mask = batch['mask'].to(device)
@@ -161,9 +161,8 @@ def main(args):
     model = sam_model_registry[args.model_type](args).to(device)
     criterion = FocalDiceloss_IoULoss()
     optimizer = optim.Adam(model.mask_decoder.parameters(), lr=args.lr, weight_decay=0)
-
-    if args.use_scheduler:
-        print("Not done yet")
+    early_stop = EarlyStopping(patience=4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.3, patience=3, verbose=True)
 
     model_save_path = os.path.join(args.work_dir, args.run_name)
     os.makedirs(model_save_path, exist_ok=True)
@@ -190,15 +189,24 @@ def main(args):
         average_train_loss = np.mean(train_loss)
         average_valid_loss = np.mean(valid_loss)
 
+        if args.use_scheduler:
+            scheduler.step(average_valid_loss)
+
+        # early stopping
+        if args.early_stop:
+            early_stop(average_valid_loss)
+            if early_stop.early_stop:
+                break
+        
+        # saving the ck
         if average_valid_loss < best_loss:
             best_loss = average_valid_loss
             model_saving = os.path.join(model_save_path, f"epoch_{i + 1}_SamSatellite.pth")
             state = {'model': model.float().state_dict(), 'optimizer': optimizer}
             torch.save(state, model_saving)
 
-        print(f"Epoch {i + 1} | "
-              f"Train_loss {average_train_loss:.4f} | Valid_loss {average_valid_loss:.4f} | "
-              f"IOU_Score {valid_metrics['iou']} | Dice_Score {valid_metrics['dice']}")
+        print(f"<------------> Train_loss {average_train_loss:.4f} | Valid_loss {average_valid_loss:.4f} | "
+              f"IOU_Score {valid_metrics['iou']} | Dice_Score {valid_metrics['dice']} \n ")
 
 
 if __name__ == '__main__':
