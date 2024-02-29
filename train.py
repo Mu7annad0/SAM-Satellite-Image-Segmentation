@@ -171,7 +171,7 @@ def main(args):
     train_dataset = RoadDataset(args.train_root, points=15)
     train_dataloader = DataLoader(train_dataset, args.batch_size, True)
 
-    valid_dataset = RoadDataset(args.valid_root, train=False, points=15)
+    valid_dataset = RoadDataset(args.valid_root, is_train=False, points=15)
     valid_dataloader = DataLoader(valid_dataset, args.batch_size, True)
 
     best_loss = 9e10
@@ -205,7 +205,7 @@ def main(args):
             state = {'model': model.float().state_dict(), 'optimizer': optimizer}
             torch.save(state, model_saving)
 
-        print(f"<------------> Train_loss {average_train_loss:.4f} | Valid_loss {average_valid_loss:.4f} | "
+        print(f"<-------------> Train_loss {average_train_loss:.4f} | Valid_loss {average_valid_loss:.4f} | "
               f"IOU_Score {valid_metrics['iou']} | Dice_Score {valid_metrics['dice']} \n ")
 
 
