@@ -227,8 +227,18 @@ class Block(nn.Module):
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
-        x = shortcut + x
+        if self.adapter:
+            x = self.Adapter(shortcut) + x
+        else:
+            x = shortcut + x
+        
         x = x + self.mlp(self.norm2(x))
+
+        # if self.adapter:
+        #     x_norm = self.norm2(x)
+        #     x = x + self.mlp(x_norm) + self.Adapter(x_norm)
+        # else:
+        #     x = x + self.mlp(self.norm2(x))
 
         return x
 
@@ -446,6 +456,5 @@ class PatchEmbed(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.proj(x)
         # B C H W -> B H W C
-        x = x.permute(0, 2, 3, 1)
         x = x.permute(0, 2, 3, 1)
         return x
