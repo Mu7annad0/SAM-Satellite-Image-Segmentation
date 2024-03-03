@@ -12,6 +12,8 @@ def parse_args():
                         default="../Dataset/DeepGlobeRoadExtraction/road/valid/")
     parser.add_argument("--test_root", type=str,
                         default="../Dataset/DeepGlobeRoadExtraction/road/test/")
+    parser.add_argument("--dubai_train_root", type=str, default="../Dataset/Semantic segmentation dataset/train/*/")
+    parser.add_argument("--dubai_valid_root", type=str, default="../Dataset/Semantic segmentation dataset/valid/*/")
     parser.add_argument('--device', type=str, default="mps")
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--model_type', type=str, default='vit_b', help='sam model_type')
