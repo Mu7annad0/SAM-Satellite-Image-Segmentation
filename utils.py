@@ -80,7 +80,7 @@ def init_point_sampling(mask, get_point=1):
         mask = mask.numpy()
         
      # Get coordinates of black/white pixels
-    fg_coords = np.argwhere(mask == 1)[:,::-1]
+    fg_coords = np.argwhere(mask > 0)[:,::-1]
     bg_coords = np.argwhere(mask == 0)[:,::-1]
 
     fg_size = len(fg_coords)
@@ -98,8 +98,15 @@ def init_point_sampling(mask, get_point=1):
         return torch.as_tensor([fg_coord.tolist()], dtype=torch.float), torch.as_tensor([label], dtype=torch.int)
 
     else:
-        num_fg = get_point // 2
-        num_bg = get_point - num_fg
+        if fg_size == 0:
+            num_fg = 0
+            num_bg = get_point
+        elif bg_size == 0:
+            num_fg = get_point
+            num_bg = 0
+        else:
+            num_fg = get_point // 2
+            num_bg = get_point - num_fg
         fg_indices = np.random.choice(fg_size, size=num_fg, replace=True)
         bg_indices = np.random.choice(bg_size, size=num_bg, replace=True)
         fg_coords = fg_coords[fg_indices]
@@ -133,9 +140,9 @@ def transformation(img_size, orig_h, orig_w, train=True):
 # ------------------------------------------visualization-------------------------------------------------
 
 
-def show_mask(mask, ax, random_color=False):
+def show_mask(mask, ax, random_color=True):
     if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+        color = np.concatenate([np.random.random(3), np.array([0.5])], axis=0)
     else:
         color = np.array([0 / 255, 0 / 255, 0 / 255, .6])
     h, w = mask.shape[-2:]
