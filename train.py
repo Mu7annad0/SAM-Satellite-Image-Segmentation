@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torch.nn import functional as F
 import torch.optim as optim
 from tqdm import tqdm
-from datasets import RoadDataset
+from datasets import RoadDataset, DubaiDataset
 from cfg import parse_args
 from segment_anything import sam_model_registry
 from utils import FocalDiceloss_IoULoss, SegMetrics, EarlyStopping
@@ -168,10 +168,13 @@ def main(args):
     os.makedirs(model_save_path, exist_ok=True)
 
     # load the datasets
-    train_dataset = RoadDataset(args.train_root, points=15)
+
+    train_dataset = RoadDataset(args.train_root, is_train=True, is_box=True, points=args.num_points)
+    # train_dataset = DubaiDataset(args.dubai_train_root, 512, True, True, points=args.num_points)
     train_dataloader = DataLoader(train_dataset, args.batch_size, True)
 
-    valid_dataset = RoadDataset(args.valid_root, is_train=False, points=15)
+    valid_dataset = DubaiDataset(args.valid_root, is_train=False, points=args.num_points)
+    # valid_dataset = DubaiDataset(args.dubai_valid_root, is_train=False, points=args.num_points)
     valid_dataloader = DataLoader(valid_dataset, args.batch_size, True)
 
     best_loss = 9e10
