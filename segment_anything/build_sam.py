@@ -9,42 +9,42 @@ from functools import partial
 from .modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer
 from torch.nn import functional as F
 
-def build_sam_vit_h(args):
+def build_sam_vit_h(ck, enc_adapter):
     return _build_sam(
         encoder_embed_dim=1280,
         encoder_depth=32,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[7, 15, 23, 31],
-        image_size=args.img_size,
-        checkpoint=args.checkpoint,
-        encoder_adapter = args.use_adapter
+        image_size=512,
+        checkpoint=ck,
+        encoder_adapter = enc_adapter
     )
 
 
 build_sam = build_sam_vit_h
 
 
-def build_sam_vit_l(args):
+def build_sam_vit_l(ck, enc_adapter):
     return _build_sam(
         encoder_embed_dim=1024,
         encoder_depth=24,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[5, 11, 17, 23],
-        image_size=args.img_size,
-        checkpoint=args.checkpoint,
-        encoder_adapter = args.use_adapter
+        image_size=512,
+        checkpoint=ck,
+        encoder_adapter = enc_adapter
     )
 
 
-def build_sam_vit_b(args):
+def build_sam_vit_b(ck, enc_adapter):
     return _build_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
-        image_size=args.img_size,
-        checkpoint=args.checkpoint,
-        encoder_adapter = args.use_adapter
+        image_size=512,
+        checkpoint=ck,
+        encoder_adapter = enc_adapter
 
     )
 
