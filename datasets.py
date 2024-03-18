@@ -1,10 +1,10 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+import cv2
 import numpy as np
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from glob import glob
-import cv2
-from utils import get_bounding_box, visualize, init_point_sampling, transformation
+from utils import get_bounding_box, get_boxes_from_mask, visualize, init_point_sampling, init_point_sampling2, transformation
 from cfg import parse_args
 
 
@@ -36,10 +36,19 @@ class BaseDataset(Dataset):
     def list_mask_files(self):
         pass
 
+    def normalize(self, tensor):
+        minFrom= tensor.min()
+        maxFrom= tensor.max()
+        minTo = 0
+        maxTo=1
+        return minTo + (maxTo - minTo) * ((tensor - minFrom) / (maxFrom - minFrom))
+
     def __len__(self):
         return len(self.image_paths)
 
     def __getitem__(self, index):
+
+        batch = {}
         img_file_path = self.image_paths[index]
         mask_file_path = self.mask_paths[index]
 
@@ -56,14 +65,16 @@ class BaseDataset(Dataset):
         transformer = self.transformation(self.image_size, h, w, self.is_train)
         augmented = transformer(image=image, mask=mask)
         image = augmented['image']
-        mask = augmented['mask']
+        mask = augmented['mask'].to(torch.int64)
+
+        image = self.normalize(image)
+        mask = self.normalize(mask)
 
         # Condition to check if bounding boxes should be included
         if self.is_box is True:
             boxes = get_bounding_box(mask)
             boxes = torch.tensor(boxes).float()
-        else:
-            boxes = None
+            batch['boxes'] = boxes
 
         if self.points is not None:
             point_coords, point_labels = init_point_sampling(mask, get_point=self.points)
@@ -71,13 +82,13 @@ class BaseDataset(Dataset):
             point_coords = torch.zeros((0, 2))  # Empty tensor for coordinates
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
-        return {
-            'image': image.float(),
-            'mask': mask.float(),
-            'box': boxes,
-            'point_coords': point_coords,
-            'point_labels': point_labels
-        }
+        batch['image'] = image.float()
+        batch['mask'] = mask.unsqueeze(0)
+        batch['point_coords'] = point_coords
+        batch['point_labels'] = point_labels
+
+        return batch
+
 
 class DubaiDataset(Dataset):
     def __init__(self, data_root, image_size=512, is_train=True, is_box=True, points=None,
@@ -110,8 +121,10 @@ class DubaiDataset(Dataset):
 
     def __len__(self):
         return len(self.image_paths)
-    
+
     def __getitem__(self, index):
+
+        batch = {}
         img_file_path = self.image_paths[index]
         mask_file_path = self.mask_paths[index]
 
@@ -119,11 +132,11 @@ class DubaiDataset(Dataset):
         mask = cv2.imread(mask_file_path)
 
         new_mask = np.zeros(mask.shape)
-        new_mask[mask == self.BGR_classes['Building']] = 5
-        new_mask[mask == self.BGR_classes['Land']] = 0
+        new_mask[mask == self.BGR_classes['Building']] = 1
+        new_mask[mask == self.BGR_classes['Land']] = 2
         new_mask[mask == self.BGR_classes['Road']] = 3
-        new_mask[mask == self.BGR_classes['Vegetation']] = 0
-        new_mask[mask == self.BGR_classes['Water']] = 0
+        new_mask[mask == self.BGR_classes['Vegetation']] = 4
+        new_mask[mask == self.BGR_classes['Water']] = 5
         new_mask[mask == self.BGR_classes['Unlabeled']] = 0
 
         new_mask = new_mask[:, :, 0]
@@ -141,10 +154,8 @@ class DubaiDataset(Dataset):
 
         # Condition to check if bounding boxes should be included
         if self.is_box is True:
-            boxes = get_bounding_box(mask)
-            boxes = torch.tensor(boxes).float()
-        else:
-            boxes = None
+            boxes = get_boxes_from_mask(mask, 1)
+            batch['boxes'] = boxes
 
         if self.points is not None:
             # print(mask)
@@ -153,13 +164,12 @@ class DubaiDataset(Dataset):
             point_coords = torch.zeros((0, 2))  # Empty tensor for coordinates
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
-        return {
-            'image': image.float(),
-            'mask': mask.float(),
-            'box': boxes,
-            'point_coords': point_coords,
-            'point_labels': point_labels
-        }
+        batch['image'] = image.float()
+        batch['mask'] = mask.float()
+        batch['point_coords'] = point_coords
+        batch['point_labels'] = point_labels
+
+        return batch
 
 
 class RoadDataset(BaseDataset):
@@ -170,19 +180,43 @@ class RoadDataset(BaseDataset):
         return sorted(glob(self.data_root + '/*_mask.png'))
 
 
+class xbdDataset(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/*disaster.png'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/*disaster_target.png'))
+
+
+class AerialDataset(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/*_image.jpg'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/*_mask.png'))
+
+
+class Nails(BaseDataset):
+    def list_image_files(self):
+        return sorted(glob(self.data_root + '/images/*.jpg'))
+
+    def list_mask_files(self):
+        return sorted(glob(self.data_root + '/labels/*.jpg'))
+    
 if __name__ == '__main__':
 
     args = parse_args()
-
-    # dataset = DubaiDataset(args.dubai_train_root, 512, True, True, points=20)
-    dataset = RoadDataset(args.train_root, 512, True, True, points=10)
-
-    train_dataloader = DataLoader(dataset, 3, True)
+    xd_train_root = "../Dataset/nails_segmentation/train/"
+    dataset = Nails(xd_train_root, 512, True, True, points=10)
+    # dataset = RoadDataset(args.train_root, 512, True, False, points=10)
+    # dataset = DubaiDataset(args.dubai_valid_root, 512, True, False, points=10)
+    
+    train_dataloader = DataLoader(dataset, 1, True)
 
     for i, batch in enumerate(train_dataloader):
         image = batch['image']
         mask = batch['mask']
-        box = batch['box']
+        box = batch['boxes']
         points_coords = batch['point_coords']
         points_labels = batch['point_labels']
         break
@@ -193,4 +227,4 @@ if __name__ == '__main__':
     print(f'shape of box: {box.shape}')  # [B, 4]
     print(f'shape of point coors: {points_coords.shape}')  # [B, No_points, 2]
     print(f'shape of point labels: {points_labels.shape}')  # [B, No_points]
-    visualize(train_dataloader, 3)
+    visualize(train_dataloader, 3, True)
