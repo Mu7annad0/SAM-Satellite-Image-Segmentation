@@ -1,10 +1,11 @@
+import os
 import torch
 import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from glob import glob
-from utils import get_bounding_box, get_boxes_from_mask, visualize, init_point_sampling, init_point_sampling2, transformation
+from utils import get_bounding_box, get_boxes_from_mask, visualize, init_point_sampling, transformation
 from cfg import parse_args
 
 
@@ -68,7 +69,7 @@ class BaseDataset(Dataset):
         mask = augmented['mask'].to(torch.int64)
 
         image = self.normalize(image)
-        mask = self.normalize(mask)
+        # mask = self.normalize(mask)
 
         # Condition to check if bounding boxes should be included
         if self.is_box is True:
@@ -121,7 +122,14 @@ class DubaiDataset(Dataset):
 
     def __len__(self):
         return len(self.image_paths)
-
+    
+    def normalize(self, tensor):
+        minFrom= tensor.min()
+        maxFrom= tensor.max()
+        minTo = 0
+        maxTo=1
+        return minTo + (maxTo - minTo) * ((tensor - minFrom) / (maxFrom - minFrom))
+    
     def __getitem__(self, index):
 
         batch = {}
@@ -133,11 +141,11 @@ class DubaiDataset(Dataset):
 
         new_mask = np.zeros(mask.shape)
         new_mask[mask == self.BGR_classes['Building']] = 1
-        new_mask[mask == self.BGR_classes['Land']] = 2
+        new_mask[mask == self.BGR_classes['Land']] = 0
         new_mask[mask == self.BGR_classes['Road']] = 3
         new_mask[mask == self.BGR_classes['Vegetation']] = 4
         new_mask[mask == self.BGR_classes['Water']] = 5
-        new_mask[mask == self.BGR_classes['Unlabeled']] = 0
+        new_mask[mask == self.BGR_classes['Unlabeled']] = 2
 
         new_mask = new_mask[:, :, 0]
 
@@ -152,6 +160,11 @@ class DubaiDataset(Dataset):
         image = augmented['image']
         mask = augmented['mask']
 
+        mask = augmented['mask'].to(torch.int64)
+
+        image = self.normalize(image)
+        # mask = self.normalize(mask)
+
         # Condition to check if bounding boxes should be included
         if self.is_box is True:
             boxes = get_boxes_from_mask(mask, 1)
@@ -165,7 +178,7 @@ class DubaiDataset(Dataset):
             point_labels = torch.zeros(0, dtype=torch.int)  # Empty tensor for labels
 
         batch['image'] = image.float()
-        batch['mask'] = mask.float()
+        batch['mask'] = mask.unsqueeze(0)
         batch['point_coords'] = point_coords
         batch['point_labels'] = point_labels
 
@@ -203,20 +216,21 @@ class Nails(BaseDataset):
     def list_mask_files(self):
         return sorted(glob(self.data_root + '/labels/*.jpg'))
     
+    
 if __name__ == '__main__':
 
     args = parse_args()
     xd_train_root = "../Dataset/nails_segmentation/train/"
-    dataset = Nails(xd_train_root, 512, True, True, points=10)
+    # dataset = Nails(xd_train_root, 512, True, True, points=10)
     # dataset = RoadDataset(args.train_root, 512, True, False, points=10)
-    # dataset = DubaiDataset(args.dubai_valid_root, 512, True, False, points=10)
+    dataset = DubaiDataset(args.dubai_valid_root, 512, True, False, points=10)
     
     train_dataloader = DataLoader(dataset, 1, True)
 
     for i, batch in enumerate(train_dataloader):
         image = batch['image']
         mask = batch['mask']
-        box = batch['boxes']
+        # box = batch['boxes']
         points_coords = batch['point_coords']
         points_labels = batch['point_labels']
         break
@@ -224,7 +238,7 @@ if __name__ == '__main__':
     print(len(dataset))
     print(f'shape of image: {image.shape}')  # [B, C, H, W]
     print(f'shape of mask: {mask.shape}')  # [B, H, W]
-    print(f'shape of box: {box.shape}')  # [B, 4]
+    # print(f'shape of box: {box.shape}')  # [B, 4]
     print(f'shape of point coors: {points_coords.shape}')  # [B, No_points, 2]
     print(f'shape of point labels: {points_labels.shape}')  # [B, No_points]
     visualize(train_dataloader, 3, True)
